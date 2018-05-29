@@ -208,6 +208,17 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 		}
 	}
 
+	public activateByIdWithErrors(extensionId: string, reason: ExtensionActivationReason): TPromise<void> {
+		return this.activateById(extensionId, reason).then(() => {
+			const extension = this._activator.getActivatedExtension(extensionId);
+			if (extension.activationFailed) {
+				// activation failed => bubble up the error as the promise result
+				return TPromise.wrapError(extension.activationFailedError);
+			}
+			return void 0;
+		});
+	}
+
 	public getAllExtensionDescriptions(): IExtensionDescription[] {
 		return this._registry.getAllExtensionDescriptions();
 	}
@@ -232,8 +243,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 				if (!ext.main) {
 					return undefined;
 				}
-				return realpath(ext.extensionFolderPath).then(value => tree.set(value, ext));
-
+				return realpath(ext.extensionLocation.fsPath).then(value => tree.set(value, ext));
 			});
 			this._extensionPathIndex = TPromise.join(extensions).then(() => tree);
 		}
@@ -348,9 +358,9 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 				globalState,
 				workspaceState,
 				subscriptions: [],
-				get extensionPath() { return extensionDescription.extensionFolderPath; },
+				get extensionPath() { return extensionDescription.extensionLocation.fsPath; },
 				storagePath: this._storagePath.value(extensionDescription),
-				asAbsolutePath: (relativePath: string) => { return join(extensionDescription.extensionFolderPath, relativePath); },
+				asAbsolutePath: (relativePath: string) => { return join(extensionDescription.extensionLocation.fsPath, relativePath); },
 				get logger() {
 					checkProposedApiEnabled(extensionDescription);
 					return that._extHostLogService.getExtLogger(extensionDescription.id);
@@ -371,7 +381,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 		};
 
 		return this._callActivateOptional(logService, extensionId, extensionModule, context, activationTimesBuilder).then((extensionExports) => {
-			return new ActivatedExtension(false, activationTimesBuilder.build(), extensionModule, extensionExports, context.subscriptions);
+			return new ActivatedExtension(false, null, activationTimesBuilder.build(), extensionModule, extensionExports, context.subscriptions);
 		});
 	}
 
@@ -423,7 +433,7 @@ function getTelemetryActivationEvent(extensionDescription: IExtensionDescription
 		"TelemetryActivationEvent" : {
 			"id": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
 			"name": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
-			"galleryPublisherDisplayName": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
+			"publisherDisplayName": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 			"activationEvents": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 			"isBuiltin": { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
 		}
@@ -431,7 +441,7 @@ function getTelemetryActivationEvent(extensionDescription: IExtensionDescription
 	let event = {
 		id: extensionDescription.id,
 		name: extensionDescription.name,
-		galleryPublisherDisplayName: extensionDescription.publisher,
+		publisherDisplayName: extensionDescription.publisher,
 		activationEvents: extensionDescription.activationEvents ? extensionDescription.activationEvents.join(',') : null,
 		isBuiltin: extensionDescription.isBuiltin
 	};

@@ -8,10 +8,9 @@
 import 'vs/css!./media/notificationsToasts';
 import { INotificationsModel, NotificationChangeType, INotificationChangeEvent, INotificationViewItem, NotificationViewItemLabelKind } from 'vs/workbench/common/notifications';
 import { IDisposable, dispose, toDisposable } from 'vs/base/common/lifecycle';
-import { addClass, removeClass, isAncestor, addDisposableListener, EventType } from 'vs/base/browser/dom';
+import { addClass, removeClass, isAncestor, addDisposableListener, EventType, Dimension } from 'vs/base/browser/dom';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { NotificationsList } from 'vs/workbench/browser/parts/notifications/notificationsList';
-import { Dimension } from 'vs/base/browser/builder';
 import { once } from 'vs/base/common/event';
 import { IPartService, Parts } from 'vs/workbench/services/part/common/partService';
 import { Themable, NOTIFICATIONS_TOAST_BORDER } from 'vs/workbench/common/theme';
@@ -169,8 +168,8 @@ export class NotificationsToasts extends Themable {
 			}
 		}));
 
-		// Remove when item gets disposed
-		once(item.onDidDispose)(() => {
+		// Remove when item gets closed
+		once(item.onDidClose)(() => {
 			this.removeToast(item);
 		});
 
@@ -186,7 +185,8 @@ export class NotificationsToasts extends Themable {
 			let timeoutHandle: number;
 			const hideAfterTimeout = () => {
 				timeoutHandle = setTimeout(() => {
-					if (!notificationList.hasFocus() && !item.expanded && !isMouseOverToast) {
+					const showsProgress = item.progress && !item.progress.state.done;
+					if (!notificationList.hasFocus() && !item.expanded && !isMouseOverToast && !showsProgress) {
 						this.removeToast(item);
 					} else {
 						hideAfterTimeout(); // push out disposal if item has focus or is expanded
@@ -436,6 +436,8 @@ export class NotificationsToasts extends Themable {
 
 			availableHeight -= (2 * 12); // adjust for paddings top and bottom
 		}
+
+		availableHeight = Math.round(availableHeight * 0.618); // try to not cover the full height for stacked toasts
 
 		return new Dimension(Math.min(maxWidth, availableWidth), availableHeight);
 	}

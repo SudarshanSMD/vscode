@@ -151,8 +151,16 @@ export class CodeWindow implements ICodeWindow {
 
 		const windowConfig = this.configurationService.getValue<IWindowSettings>('window');
 
+		if (isMacintosh) {
+			options.acceptFirstMouse = true; // enabled by default
+
+			if (windowConfig && windowConfig.clickThroughInactive === false) {
+				options.acceptFirstMouse = false;
+			}
+		}
+
 		let useNativeTabs = false;
-		if (windowConfig && windowConfig.nativeTabs) {
+		if (isMacintosh && windowConfig && windowConfig.nativeTabs === true) {
 			options.tabbingIdentifier = product.nameShort; // this opts in to sierra tabs
 			useNativeTabs = true;
 		}
@@ -359,7 +367,7 @@ export class CodeWindow implements ICodeWindow {
 			}
 
 			// To prevent flashing, we set the window visible after the page has finished to load but before Code is loaded
-			if (!this._win.isVisible()) {
+			if (this._win && !this._win.isVisible()) {
 				if (this.windowState.mode === WindowMode.Maximized) {
 					this._win.maximize();
 				}
@@ -598,7 +606,7 @@ export class CodeWindow implements ICodeWindow {
 
 		// Perf Counters
 		windowConfiguration.perfEntries = exportEntries();
-		windowConfiguration.perfStartTime = global.perfStartTime;
+		windowConfiguration.perfStartTime = (<any>global).perfStartTime;
 		windowConfiguration.perfWindowLoadTime = Date.now();
 
 		// Config (combination of process.argv and window configuration)

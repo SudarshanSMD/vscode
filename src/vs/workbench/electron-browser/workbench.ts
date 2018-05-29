@@ -38,7 +38,7 @@ import { QuickOpenController } from 'vs/workbench/browser/parts/quickopen/quickO
 import { IQuickInputService } from 'vs/platform/quickinput/common/quickInput';
 import { QuickInputService } from 'vs/workbench/browser/parts/quickinput/quickInput';
 import { getServices } from 'vs/platform/instantiation/common/extensions';
-import { Position, Parts, IPartService, ILayoutOptions, Dimension } from 'vs/workbench/services/part/common/partService';
+import { Position, Parts, IPartService, ILayoutOptions, IDimension } from 'vs/workbench/services/part/common/partService';
 import { IWorkspaceContextService, WorkbenchState } from 'vs/platform/workspace/common/workspace';
 import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
 import { ContextMenuService } from 'vs/workbench/services/contextview/electron-browser/contextmenuService';
@@ -97,8 +97,8 @@ import URI from 'vs/base/common/uri';
 import { IListService, ListService } from 'vs/platform/list/browser/listService';
 import { domEvent } from 'vs/base/browser/event';
 import { InputFocusedContext } from 'vs/platform/workbench/common/contextkeys';
-import { ICustomViewsService } from 'vs/workbench/common/views';
-import { CustomViewsService } from 'vs/workbench/browser/parts/views/customView';
+import { IViewsService } from 'vs/workbench/common/views';
+import { ViewsService } from 'vs/workbench/browser/parts/views/views';
 import { INotificationService } from 'vs/platform/notification/common/notification';
 import { NotificationService } from 'vs/workbench/services/notification/common/notificationService';
 import { NotificationsCenter } from 'vs/workbench/browser/parts/notifications/notificationsCenter';
@@ -106,6 +106,11 @@ import { NotificationsAlerts } from 'vs/workbench/browser/parts/notifications/no
 import { NotificationsStatus } from 'vs/workbench/browser/parts/notifications/notificationsStatus';
 import { registerNotificationCommands } from 'vs/workbench/browser/parts/notifications/notificationsCommands';
 import { NotificationsToasts } from 'vs/workbench/browser/parts/notifications/notificationsToasts';
+import { IPCClient } from 'vs/base/parts/ipc/common/ipc';
+import { registerWindowDriver } from 'vs/platform/driver/electron-browser/driver';
+import { IPreferencesService } from 'vs/workbench/services/preferences/common/preferences';
+import { PreferencesService } from 'vs/workbench/services/preferences/browser/preferencesService';
+import { IExtensionUrlHandler, ExtensionUrlHandler } from 'vs/platform/url/electron-browser/inactiveExtensionUrlHandler';
 
 export const EditorsVisibleContext = new RawContextKey<boolean>('editorIsOpen', false);
 export const InZenModeContext = new RawContextKey<boolean>('inZenMode', false);
@@ -231,9 +236,10 @@ export class Workbench implements IPartService {
 	constructor(
 		parent: HTMLElement,
 		container: HTMLElement,
-		configuration: IWindowConfiguration,
+		private configuration: IWindowConfiguration,
 		serviceCollection: ServiceCollection,
 		private lifecycleService: LifecycleService,
+		private mainProcessClient: IPCClient,
 		@IInstantiationService private instantiationService: IInstantiationService,
 		@IWorkspaceContextService private contextService: IWorkspaceContextService,
 		@IStorageService private storageService: IStorageService,
@@ -267,7 +273,7 @@ export class Workbench implements IPartService {
 		return this._onTitleBarVisibilityChange.event;
 	}
 
-	public get onEditorLayout(): Event<Dimension> {
+	public get onEditorLayout(): Event<IDimension> {
 		return this.editorPart.onLayout;
 	}
 
@@ -317,6 +323,12 @@ export class Workbench implements IPartService {
 
 		// Workbench Layout
 		this.createWorkbenchLayout();
+
+		// Driver
+		if (this.environmentService.driverHandle) {
+			registerWindowDriver(this.mainProcessClient, this.configuration.windowId, this.instantiationService)
+				.then(disposable => this.toUnbind.push(disposable));
+		}
 
 		// Restore Parts
 		return this.restoreParts();
@@ -375,9 +387,11 @@ export class Workbench implements IPartService {
 			}
 
 			perf.mark('willRestoreViewlet');
-			restorePromises.push(this.viewletService.openViewlet(viewletIdToRestore).then(() => {
-				perf.mark('didRestoreViewlet');
-			}));
+			restorePromises.push(this.viewletService.openViewlet(viewletIdToRestore)
+				.then(viewlet => viewlet || this.viewletService.openViewlet(this.viewletService.getDefaultViewletId()))
+				.then(() => {
+					perf.mark('didRestoreViewlet');
+				}));
 		}
 
 		// Restore Panel
@@ -393,7 +407,7 @@ export class Workbench implements IPartService {
 		}
 
 		// Restore Forced Editor Center Mode
-		if (this.storageService.getBoolean(Workbench.centeredEditorLayoutActiveStorageKey, StorageScope.GLOBAL, false)) {
+		if (this.storageService.getBoolean(Workbench.centeredEditorLayoutActiveStorageKey, StorageScope.WORKSPACE, false)) {
 			this.centeredEditorLayoutActive = true;
 		}
 
@@ -424,6 +438,7 @@ export class Workbench implements IPartService {
 		workbenchActionsRegistry.registerWorkbenchAction(new SyncActionDescriptor(ToggleDevToolsAction, ToggleDevToolsAction.ID, ToggleDevToolsAction.LABEL, isDeveloping ? { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_I, mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KEY_I } } : void 0), 'Developer: Toggle Developer Tools', localize('developer', "Developer"));
 		workbenchActionsRegistry.registerWorkbenchAction(new SyncActionDescriptor(OpenRecentAction, OpenRecentAction.ID, OpenRecentAction.LABEL, { primary: isDeveloping ? null : KeyMod.CtrlCmd | KeyCode.KEY_R, mac: { primary: KeyMod.WinCtrl | KeyCode.KEY_R } }), 'File: Open Recent...', localize('file', "File"));
 		workbenchActionsRegistry.registerWorkbenchAction(new SyncActionDescriptor(ReloadWindowWithExtensionsDisabledAction, ReloadWindowWithExtensionsDisabledAction.ID, ReloadWindowWithExtensionsDisabledAction.LABEL), 'Reload Window Without Extensions');
+
 		// Actions for macOS native tabs management (only when enabled)
 		const windowConfig = this.configurationService.getValue<IWindowConfiguration>();
 		if (windowConfig && windowConfig.window && windowConfig.window.nativeTabs) {
@@ -562,8 +577,8 @@ export class Workbench implements IPartService {
 		serviceCollection.set(IPanelService, this.panelPart);
 
 		// Custom views service
-		const customViewsService = this.instantiationService.createInstance(CustomViewsService);
-		serviceCollection.set(ICustomViewsService, customViewsService);
+		const customViewsService = this.instantiationService.createInstance(ViewsService);
+		serviceCollection.set(IViewsService, customViewsService);
 
 		// Activity service (activitybar part)
 		this.activitybarPart = this.instantiationService.createInstance(ActivitybarPart, Identifiers.ACTIVITYBAR_PART);
@@ -574,7 +589,7 @@ export class Workbench implements IPartService {
 		// File Service
 		this.fileService = this.instantiationService.createInstance(RemoteFileService);
 		serviceCollection.set(IFileService, this.fileService);
-		this.toUnbind.push(this.fileService.onFileChanges(e => this.configurationService.handleWorkspaceFileEvents(e)));
+		this.configurationService.acquireFileService(this.fileService);
 
 		// Editor service (editor part)
 		this.editorPart = this.instantiationService.createInstance(EditorPart, Identifiers.EDITOR_PART, !this.hasFilesToCreateOpenOrDiff);
@@ -604,6 +619,9 @@ export class Workbench implements IPartService {
 		// SCM Service
 		serviceCollection.set(ISCMService, new SyncDescriptor(SCMService));
 
+		// Inactive extension URL handler
+		serviceCollection.set(IExtensionUrlHandler, new SyncDescriptor(ExtensionUrlHandler));
+
 		// Text Model Resolver Service
 		serviceCollection.set(ITextModelService, new SyncDescriptor(TextModelResolverService));
 
@@ -630,6 +648,9 @@ export class Workbench implements IPartService {
 		this.toUnbind.push({ dispose: () => this.quickInput.shutdown() });
 		serviceCollection.set(IQuickInputService, this.quickInput);
 
+		// PreferencesService
+		serviceCollection.set(IPreferencesService, this.instantiationService.createInstance(PreferencesService));
+
 		// Contributed services
 		const contributedServices = getServices();
 		for (let contributedService of contributedServices) {
@@ -643,7 +664,7 @@ export class Workbench implements IPartService {
 
 		this.instantiationService.createInstance(DefaultConfigurationExportHelper);
 
-		this.configurationService.setInstantiationService(this.getInstantiationService());
+		this.configurationService.acquireInstantiationService(this.getInstantiationService());
 	}
 
 	private initSettings(): void {
@@ -720,7 +741,7 @@ export class Workbench implements IPartService {
 	}
 
 	public getContainer(part: Parts): HTMLElement {
-		let container: Builder = null;
+		let container: HTMLElement = null;
 		switch (part) {
 			case Parts.TITLEBAR_PART:
 				container = this.titlebarPart.getContainer();
@@ -741,7 +762,8 @@ export class Workbench implements IPartService {
 				container = this.statusbarPart.getContainer();
 				break;
 		}
-		return container && container.getHTMLElement();
+
+		return container;
 	}
 
 	public isVisible(part: Parts): boolean {
@@ -852,7 +874,8 @@ export class Workbench implements IPartService {
 		else if (!hidden && !this.sidebarPart.getActiveViewlet()) {
 			const viewletToOpen = this.sidebarPart.getLastActiveViewletId();
 			if (viewletToOpen) {
-				promise = this.sidebarPart.openViewlet(viewletToOpen, true);
+				promise = this.viewletService.openViewlet(viewletToOpen, true)
+					.then(viewlet => viewlet || this.viewletService.openViewlet(this.viewletService.getDefaultViewletId(), true));
 			}
 		}
 
@@ -941,10 +964,10 @@ export class Workbench implements IPartService {
 		this.sideBarPosition = position;
 
 		// Adjust CSS
-		this.activitybarPart.getContainer().removeClass(oldPositionValue);
-		this.sidebarPart.getContainer().removeClass(oldPositionValue);
-		this.activitybarPart.getContainer().addClass(newPositionValue);
-		this.sidebarPart.getContainer().addClass(newPositionValue);
+		DOM.removeClass(this.activitybarPart.getContainer(), oldPositionValue);
+		DOM.removeClass(this.sidebarPart.getContainer(), oldPositionValue);
+		DOM.addClass(this.activitybarPart.getContainer(), newPositionValue);
+		DOM.addClass(this.sidebarPart.getContainer(), newPositionValue);
 
 		// Update Styles
 		this.activitybarPart.updateStyles();
@@ -966,8 +989,8 @@ export class Workbench implements IPartService {
 			this.storageService.store(Workbench.panelPositionStorageKey, Position[this.panelPosition].toLowerCase(), StorageScope.WORKSPACE);
 
 			// Adjust CSS
-			this.panelPart.getContainer().removeClass(oldPositionValue);
-			this.panelPart.getContainer().addClass(newPositionValue);
+			DOM.removeClass(this.panelPart.getContainer(), oldPositionValue);
+			DOM.addClass(this.panelPart.getContainer(), newPositionValue);
 
 			// Update Styles
 			this.panelPart.updateStyles();
@@ -1107,10 +1130,10 @@ export class Workbench implements IPartService {
 		const editorContainer = this.editorPart.getContainer();
 		if (visibleEditors === 0) {
 			this.editorsVisibleContext.reset();
-			this.editorBackgroundDelayer.trigger(() => editorContainer.addClass('empty'));
+			this.editorBackgroundDelayer.trigger(() => DOM.addClass(editorContainer, 'empty'));
 		} else {
 			this.editorsVisibleContext.set(true);
-			this.editorBackgroundDelayer.trigger(() => editorContainer.removeClass('empty'));
+			this.editorBackgroundDelayer.trigger(() => DOM.removeClass(editorContainer, 'empty'));
 		}
 	}
 
@@ -1151,8 +1174,8 @@ export class Workbench implements IPartService {
 	private createWorkbenchLayout(): void {
 		this.workbenchLayout = this.instantiationService.createInstance(
 			WorkbenchLayout,
-			$(this.container),							// Parent
-			this.workbench,								// Workbench Container
+			this.container,								// Parent
+			this.workbench.getHTMLElement(),			// Workbench Container
 			{
 				titlebar: this.titlebarPart,			// Title Bar
 				activitybar: this.activitybarPart,		// Activity Bar
@@ -1217,7 +1240,7 @@ export class Workbench implements IPartService {
 			role: 'contentinfo'
 		});
 
-		this.titlebarPart.create(titlebarContainer);
+		this.titlebarPart.create(titlebarContainer.getHTMLElement());
 	}
 
 	private createActivityBarPart(): void {
@@ -1228,7 +1251,7 @@ export class Workbench implements IPartService {
 				role: 'navigation'
 			});
 
-		this.activitybarPart.create(activitybarPartContainer);
+		this.activitybarPart.create(activitybarPartContainer.getHTMLElement());
 	}
 
 	private createSidebarPart(): void {
@@ -1239,7 +1262,7 @@ export class Workbench implements IPartService {
 				role: 'complementary'
 			});
 
-		this.sidebarPart.create(sidebarPartContainer);
+		this.sidebarPart.create(sidebarPartContainer.getHTMLElement());
 	}
 
 	private createPanelPart(): void {
@@ -1250,7 +1273,7 @@ export class Workbench implements IPartService {
 				role: 'complementary'
 			});
 
-		this.panelPart.create(panelPartContainer);
+		this.panelPart.create(panelPartContainer.getHTMLElement());
 	}
 
 	private createEditorPart(): void {
@@ -1261,7 +1284,7 @@ export class Workbench implements IPartService {
 				role: 'main'
 			});
 
-		this.editorPart.create(editorContainer);
+		this.editorPart.create(editorContainer.getHTMLElement());
 	}
 
 	private createStatusbarPart(): void {
@@ -1271,7 +1294,7 @@ export class Workbench implements IPartService {
 			role: 'contentinfo'
 		});
 
-		this.statusbarPart.create(statusbarContainer);
+		this.statusbarPart.create(statusbarContainer.getHTMLElement());
 	}
 
 	private createNotificationsHandlers(): void {
@@ -1395,7 +1418,7 @@ export class Workbench implements IPartService {
 
 	public centerEditorLayout(active: boolean, skipLayout?: boolean): void {
 		this.centeredEditorLayoutActive = active;
-		this.storageService.store(Workbench.centeredEditorLayoutActiveStorageKey, this.centeredEditorLayoutActive, StorageScope.GLOBAL);
+		this.storageService.store(Workbench.centeredEditorLayoutActiveStorageKey, this.centeredEditorLayoutActive, StorageScope.WORKSPACE);
 
 		if (!skipLayout) {
 			this.layout();

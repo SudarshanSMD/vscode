@@ -9,7 +9,7 @@ import * as nls from 'vs/nls';
 import { isMacintosh, isLinux, isWindows, language } from 'vs/base/common/platform';
 import * as arrays from 'vs/base/common/arrays';
 import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { ipcMain as ipc, app, shell, Menu, MenuItem, BrowserWindow } from 'electron';
+import { app, shell, Menu, MenuItem, BrowserWindow } from 'electron';
 import { OpenContext, IRunActionInWindowRequest, IWindowsService } from 'vs/platform/windows/common/windows';
 import { IConfigurationService, IConfigurationChangeEvent } from 'vs/platform/configuration/common/configuration';
 import { AutoSaveConfiguration } from 'vs/platform/files/common/files';
@@ -23,11 +23,6 @@ import { KeybindingsResolver } from 'vs/code/electron-main/keyboard';
 import { IWindowsMainService, IWindowsCountChangedEvent } from 'vs/platform/windows/electron-main/windows';
 import { IHistoryMainService } from 'vs/platform/history/common/history';
 import { IWorkspaceIdentifier, getWorkspaceLabel, ISingleFolderWorkspaceIdentifier, isSingleFolderWorkspaceIdentifier } from 'vs/platform/workspaces/common/workspaces';
-
-interface IExtensionViewlet {
-	id: string;
-	label: string;
-}
 
 interface IMenuItemClickHandler {
 	inDevTools: (contents: Electron.WebContents) => void;
@@ -57,8 +52,6 @@ export class CodeMenu {
 
 	private keybindingsResolver: KeybindingsResolver;
 
-	private extensionViewlets: IExtensionViewlet[];
-
 	private closeFolder: Electron.MenuItem;
 	private closeWorkspace: Electron.MenuItem;
 
@@ -74,7 +67,6 @@ export class CodeMenu {
 		@ITelemetryService private telemetryService: ITelemetryService,
 		@IHistoryMainService private historyMainService: IHistoryMainService
 	) {
-		this.extensionViewlets = [];
 		this.nativeTabMenuItems = [];
 
 		this.menuUpdater = new RunOnceScheduler(() => this.doUpdateMenu(), 0);
@@ -98,21 +90,6 @@ export class CodeMenu {
 		this.windowsMainService.onActiveWindowChanged(() => this.updateWorkspaceMenuItems());
 		this.windowsMainService.onWindowReady(() => this.updateWorkspaceMenuItems());
 		this.windowsMainService.onWindowClose(() => this.updateWorkspaceMenuItems());
-
-		// Listen to extension viewlets
-		ipc.on('vscode:extensionViewlets', (_event: any, rawExtensionViewlets: string) => {
-			let extensionViewlets: IExtensionViewlet[] = [];
-			try {
-				extensionViewlets = JSON.parse(rawExtensionViewlets);
-			} catch (error) {
-				// Should not happen
-			}
-
-			if (extensionViewlets.length) {
-				this.extensionViewlets = extensionViewlets;
-				this.updateMenu();
-			}
-		});
 
 		// Update when auto save config changes
 		this.configurationService.onDidChangeConfiguration(e => this.onConfigurationUpdated(e));
@@ -451,7 +428,7 @@ export class CodeMenu {
 	}
 
 	private getPreferencesMenu(): Electron.MenuItem {
-		const settings = this.createMenuItem(nls.localize({ key: 'miOpenSettings', comment: ['&& denotes a mnemonic'] }, "&&Settings"), 'workbench.action.openGlobalSettings');
+		const settings = this.createMenuItem(nls.localize({ key: 'miOpenSettings', comment: ['&& denotes a mnemonic'] }, "&&Settings"), 'workbench.action.openSettings');
 		const kebindingSettings = this.createMenuItem(nls.localize({ key: 'miOpenKeymap', comment: ['&& denotes a mnemonic'] }, "&&Keyboard Shortcuts"), 'workbench.action.openGlobalKeybindings');
 		const keymapExtensions = this.createMenuItem(nls.localize({ key: 'miOpenKeymapExtensions', comment: ['&& denotes a mnemonic'] }, "&&Keymap Extensions"), 'workbench.extensions.action.showRecommendedKeymapExtensions');
 		const snippetsSettings = this.createMenuItem(nls.localize({ key: 'miOpenSnippets', comment: ['&& denotes a mnemonic'] }, "User &&Snippets"), 'workbench.action.openSnippets');
@@ -671,21 +648,8 @@ export class CodeMenu {
 		const debugConsole = this.createMenuItem(nls.localize({ key: 'miToggleDebugConsole', comment: ['&& denotes a mnemonic'] }, "De&&bug Console"), 'workbench.debug.action.toggleRepl');
 		const integratedTerminal = this.createMenuItem(nls.localize({ key: 'miToggleIntegratedTerminal', comment: ['&& denotes a mnemonic'] }, "&&Integrated Terminal"), 'workbench.action.terminal.toggleTerminal');
 		const problems = this.createMenuItem(nls.localize({ key: 'miMarker', comment: ['&& denotes a mnemonic'] }, "&&Problems"), 'workbench.actions.view.problems');
-
-		let additionalViewlets: Electron.MenuItem;
-		if (this.extensionViewlets.length) {
-			const additionalViewletsMenu = new Menu();
-
-			this.extensionViewlets.forEach(viewlet => {
-				additionalViewletsMenu.append(this.createMenuItem(viewlet.label, viewlet.id));
-			});
-
-			additionalViewlets = new MenuItem({ label: this.mnemonicLabel(nls.localize({ key: 'miAdditionalViews', comment: ['&& denotes a mnemonic'] }, "Additional &&Views")), submenu: additionalViewletsMenu, enabled: true });
-		}
-
 		const commands = this.createMenuItem(nls.localize({ key: 'miCommandPalette', comment: ['&& denotes a mnemonic'] }, "&&Command Palette..."), 'workbench.action.showCommands');
 		const openView = this.createMenuItem(nls.localize({ key: 'miOpenView', comment: ['&& denotes a mnemonic'] }, "&&Open View..."), 'workbench.action.openView');
-
 		const fullscreen = new MenuItem(this.withKeybinding('workbench.action.toggleFullScreen', { label: this.mnemonicLabel(nls.localize({ key: 'miToggleFullScreen', comment: ['&& denotes a mnemonic'] }, "Toggle &&Full Screen")), click: () => this.windowsMainService.getLastActiveWindow().toggleFullScreen(), enabled: this.windowsMainService.getWindowCount() > 0 }));
 		const toggleZenMode = this.createMenuItem(nls.localize('miToggleZenMode', "Toggle Zen Mode"), 'workbench.action.toggleZenMode');
 		const toggleCenteredLayout = this.createMenuItem(nls.localize('miToggleCenteredLayout', "Toggle Centered Layout"), 'workbench.action.toggleCenteredLayout');
@@ -739,7 +703,6 @@ export class CodeMenu {
 			scm,
 			debug,
 			extensions,
-			additionalViewlets,
 			__separator__(),
 			output,
 			problems,
@@ -852,8 +815,9 @@ export class CodeMenu {
 		const toggleBreakpoint = this.createMenuItem(nls.localize({ key: 'miToggleBreakpoint', comment: ['&& denotes a mnemonic'] }, "Toggle &&Breakpoint"), 'editor.debug.action.toggleBreakpoint');
 		const breakpointsMenu = new Menu();
 		breakpointsMenu.append(this.createMenuItem(nls.localize({ key: 'miConditionalBreakpoint', comment: ['&& denotes a mnemonic'] }, "&&Conditional Breakpoint..."), 'editor.debug.action.conditionalBreakpoint'));
-		breakpointsMenu.append(this.createMenuItem(nls.localize({ key: 'miColumnBreakpoint', comment: ['&& denotes a mnemonic'] }, "C&&olumn Breakpoint"), 'editor.debug.action.toggleColumnBreakpoint'));
+		breakpointsMenu.append(this.createMenuItem(nls.localize({ key: 'miInlineBreakpoint', comment: ['&& denotes a mnemonic'] }, "Inline Breakp&&oint"), 'editor.debug.action.toggleInlineBreakpoint'));
 		breakpointsMenu.append(this.createMenuItem(nls.localize({ key: 'miFunctionBreakpoint', comment: ['&& denotes a mnemonic'] }, "&&Function Breakpoint..."), 'workbench.debug.viewlet.action.addFunctionBreakpointAction'));
+		breakpointsMenu.append(this.createMenuItem(nls.localize({ key: 'miLogPoint', comment: ['&& denotes a mnemonic'] }, "&&Logpoint..."), 'editor.debug.action.toggleLogPoint'));
 		const newBreakpoints = new MenuItem({ label: this.mnemonicLabel(nls.localize({ key: 'miNewBreakpoint', comment: ['&& denotes a mnemonic'] }, "&&New Breakpoint")), submenu: breakpointsMenu });
 		const enableAllBreakpoints = this.createMenuItem(nls.localize({ key: 'miEnableAllBreakpoints', comment: ['&& denotes a mnemonic'] }, "Enable All Breakpoints"), 'workbench.debug.viewlet.action.enableAllBreakpoints');
 		const disableAllBreakpoints = this.createMenuItem(nls.localize({ key: 'miDisableAllBreakpoints', comment: ['&& denotes a mnemonic'] }, "Disable A&&ll Breakpoints"), 'workbench.debug.viewlet.action.disableAllBreakpoints');
@@ -942,6 +906,8 @@ export class CodeMenu {
 			}
 		}, false));
 
+		const openProcessExplorer = new MenuItem({ label: this.mnemonicLabel(nls.localize({ key: 'miOpenProcessExplorerer', comment: ['&& denotes a mnemonic'] }, "Open &&Process Explorer")), click: () => this.runActionInRenderer('workbench.action.openProcessExplorer') });
+
 		let reportIssuesItem: Electron.MenuItem = null;
 		if (product.reportIssueUrl) {
 			const label = nls.localize({ key: 'miReportIssue', comment: ['&& denotes a mnemonic', 'Translate this to "Report Issue in English" in all languages please!'] }, "Report &&Issue");
@@ -990,7 +956,8 @@ export class CodeMenu {
 			}) : null,
 			(product.licenseUrl || product.privacyStatementUrl) ? __separator__() : null,
 			toggleDevToolsItem,
-			isWindows && product.quality !== 'stable' ? showAccessibilityOptions : null
+			openProcessExplorer,
+			isWindows && product.quality !== 'stable' ? showAccessibilityOptions : null,
 		]).forEach(item => helpMenu.append(item));
 
 		if (!isMacintosh) {
@@ -1029,7 +996,7 @@ export class CodeMenu {
 	}
 
 	private openAccessibilityOptions(): void {
-		let win = new BrowserWindow({
+		const win = new BrowserWindow({
 			alwaysOnTop: true,
 			skipTaskbar: true,
 			resizable: false,

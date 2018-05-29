@@ -14,27 +14,38 @@ import { IViewlet } from 'vs/workbench/common/viewlet';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { ThemeIcon } from 'vs/platform/theme/common/themeService';
+import { values } from 'vs/base/common/map';
 
 export class ViewLocation {
 
-	static readonly Explorer = new ViewLocation('workbench.view.explorer');
-	static readonly Debug = new ViewLocation('workbench.view.debug');
-	static readonly Extensions = new ViewLocation('workbench.view.extensions');
+	private static readonly _onDidRegister: Emitter<ViewLocation> = new Emitter<ViewLocation>();
+	static readonly onDidRegister: Event<ViewLocation> = ViewLocation._onDidRegister.event;
 
-	constructor(private _id: string) {
-	}
-
-	get id(): string {
-		return this._id;
-	}
-
-	static getContributedViewLocation(value: string): ViewLocation {
-		switch (value) {
-			case 'explorer': return ViewLocation.Explorer;
-			case 'debug': return ViewLocation.Debug;
+	private static locations: Map<string, ViewLocation> = new Map<string, ViewLocation>();
+	static register(id: string): ViewLocation {
+		if (!ViewLocation.locations.has(id)) {
+			const viewLocation = new ViewLocation(id);
+			ViewLocation.locations.set(id, viewLocation);
+			ViewLocation._onDidRegister.fire(viewLocation);
 		}
-		return void 0;
+		return ViewLocation.get(id);
 	}
+	static get(value: string): ViewLocation {
+		return ViewLocation.locations.get(value);
+	}
+	static get all(): ViewLocation[] {
+		return values(ViewLocation.locations);
+	}
+
+	static readonly Explorer: ViewLocation = ViewLocation.register('workbench.view.explorer');
+	static readonly Debug: ViewLocation = ViewLocation.register('workbench.view.debug');
+	static readonly Extensions: ViewLocation = ViewLocation.register('workbench.view.extensions');
+	static readonly SCM: ViewLocation = ViewLocation.register('workbench.view.scm.views.contributed');
+	static readonly TEST: ViewLocation = ViewLocation.register('workbench.view.extension.test');
+
+	private constructor(private _id: string) { }
+	get id(): string { return this._id; }
+
 }
 
 export interface IViewDescriptor {
@@ -57,6 +68,8 @@ export interface IViewDescriptor {
 	readonly collapsed?: boolean;
 
 	readonly canToggleVisibility?: boolean;
+
+	readonly hideByDefault?: boolean;
 }
 
 export interface IViewsRegistry {
@@ -123,9 +136,9 @@ export const ViewsRegistry: IViewsRegistry = new class implements IViewsRegistry
 				this._views.delete(location);
 				this._viewLocations.splice(this._viewLocations.indexOf(location), 1);
 			}
+			this._onViewsDeregistered.fire(viewsToDeregister);
 		}
 
-		this._onViewsDeregistered.fire(viewsToDeregister);
 	}
 
 	getViews(loc: ViewLocation): IViewDescriptor[] {
@@ -161,6 +174,12 @@ export interface ITreeViewer extends IDisposable {
 
 	dataProvider: ITreeViewDataProvider;
 
+	readonly onDidExpandItem: Event<ITreeItem>;
+
+	readonly onDidCollapseItem: Event<ITreeItem>;
+
+	readonly onDidChangeSelection: Event<ITreeItem[]>;
+
 	refresh(treeItems?: ITreeItem[]): TPromise<void>;
 
 	setVisibility(visible: boolean): void;
@@ -182,9 +201,9 @@ export interface ICustomViewDescriptor extends IViewDescriptor {
 
 }
 
-export const ICustomViewsService = createDecorator<ICustomViewsService>('customViewsService');
+export const IViewsService = createDecorator<IViewsService>('viewsService');
 
-export interface ICustomViewsService {
+export interface IViewsService {
 	_serviceBrand: any;
 
 	getTreeViewer(id: string): ITreeViewer;
@@ -233,9 +252,6 @@ export interface ITreeItem {
 
 export interface ITreeViewDataProvider {
 
-	onDidChange: Event<ITreeItem[] | undefined | null>;
-
-	onDispose: Event<void>;
-
 	getChildren(element?: ITreeItem): TPromise<ITreeItem[]>;
+
 }

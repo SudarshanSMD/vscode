@@ -33,8 +33,9 @@ suite('ExtHostDocumentSaveParticipant', () => {
 		publisher: 'vscode',
 		enableProposedApi: false,
 		engines: undefined,
-		extensionFolderPath: undefined,
+		extensionLocation: undefined,
 		isBuiltin: false,
+		isUnderDevelopment: false,
 		version: undefined
 	};
 
@@ -87,7 +88,7 @@ suite('ExtHostDocumentSaveParticipant', () => {
 			sub.dispose();
 
 			assert.ok(event);
-			assert.throws(() => event.document = null);
+			assert.throws(() => { event.document = null; });
 		});
 	});
 
@@ -302,6 +303,7 @@ suite('ExtHostDocumentSaveParticipant', () => {
 			documents.$acceptModelChanged(resource, {
 				changes: [{
 					range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+					rangeOffset: undefined,
 					rangeLength: undefined,
 					text: 'bar'
 				}],
@@ -337,6 +339,7 @@ suite('ExtHostDocumentSaveParticipant', () => {
 							changes: [{
 								range,
 								text,
+								rangeOffset: undefined,
 								rangeLength: undefined,
 							}],
 							eol: undefined,

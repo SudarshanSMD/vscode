@@ -36,9 +36,8 @@ import { ScrollbarVisibility } from 'vs/base/common/scrollable';
 import { getOrSet } from 'vs/base/common/map';
 import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
 import { IThemeService, registerThemingParticipant, ITheme, ICssStyleCollector } from 'vs/platform/theme/common/themeService';
-import { TAB_INACTIVE_BACKGROUND, TAB_ACTIVE_BACKGROUND, TAB_ACTIVE_FOREGROUND, TAB_INACTIVE_FOREGROUND, TAB_BORDER, EDITOR_DRAG_AND_DROP_BACKGROUND, TAB_UNFOCUSED_ACTIVE_FOREGROUND, TAB_UNFOCUSED_INACTIVE_FOREGROUND, TAB_UNFOCUSED_ACTIVE_BORDER, TAB_ACTIVE_BORDER, TAB_HOVER_BACKGROUND, TAB_HOVER_BORDER, TAB_UNFOCUSED_HOVER_BACKGROUND, TAB_UNFOCUSED_HOVER_BORDER, EDITOR_GROUP_HEADER_TABS_BACKGROUND, EDITOR_GROUP_BACKGROUND, WORKBENCH_BACKGROUND } from 'vs/workbench/common/theme';
+import { TAB_INACTIVE_BACKGROUND, TAB_ACTIVE_BACKGROUND, TAB_ACTIVE_FOREGROUND, TAB_INACTIVE_FOREGROUND, TAB_BORDER, EDITOR_DRAG_AND_DROP_BACKGROUND, TAB_UNFOCUSED_ACTIVE_FOREGROUND, TAB_UNFOCUSED_INACTIVE_FOREGROUND, TAB_UNFOCUSED_ACTIVE_BORDER, TAB_ACTIVE_BORDER, TAB_HOVER_BACKGROUND, TAB_HOVER_BORDER, TAB_UNFOCUSED_HOVER_BACKGROUND, TAB_UNFOCUSED_HOVER_BORDER, EDITOR_GROUP_HEADER_TABS_BACKGROUND, EDITOR_GROUP_BACKGROUND, WORKBENCH_BACKGROUND, TAB_ACTIVE_BORDER_TOP, TAB_UNFOCUSED_ACTIVE_BORDER_TOP } from 'vs/workbench/common/theme';
 import { activeContrastBorder, contrastBorder, editorBackground } from 'vs/platform/theme/common/colorRegistry';
-import { Dimension } from 'vs/base/browser/builder';
 import { ResourcesDropHandler, fillResourceDataTransfers, LocalSelectionTransfer, DraggedEditorIdentifier } from 'vs/workbench/browser/dnd';
 import { Color } from 'vs/base/common/color';
 import { INotificationService } from 'vs/platform/notification/common/notification';
@@ -60,7 +59,7 @@ export class TabsTitleControl extends TitleControl {
 	private scrollbar: ScrollableElement;
 	private tabDisposeables: IDisposable[];
 	private blockRevealActiveTab: boolean;
-	private dimension: Dimension;
+	private dimension: DOM.Dimension;
 	private layoutScheduled: IDisposable;
 	private transfer = LocalSelectionTransfer.getInstance<DraggedEditorIdentifier>();
 
@@ -334,8 +333,11 @@ export class TabsTitleControl extends TitleControl {
 				// color, the two colors would collide and the tab border never shows up.
 				// see https://github.com/Microsoft/vscode/issues/33111
 				const activeTabBorderColor = this.getColor(isGroupActive ? TAB_ACTIVE_BORDER : TAB_UNFOCUSED_ACTIVE_BORDER);
+				const activeTabBorderColorTop = this.getColor(isGroupActive ? TAB_ACTIVE_BORDER_TOP : TAB_UNFOCUSED_ACTIVE_BORDER_TOP);
 				if (activeTabBorderColor) {
 					tabContainer.style.boxShadow = `${activeTabBorderColor} 0 -1px inset`;
+				} else if (activeTabBorderColorTop) {
+					tabContainer.style.boxShadow = `${activeTabBorderColorTop} 0 1px inset`;
 				} else {
 					tabContainer.style.boxShadow = null;
 				}
@@ -542,7 +544,6 @@ export class TabsTitleControl extends TitleControl {
 		tabContainer.appendChild(tabCloseContainer);
 
 		const actionRunner = new TabActionRunner(() => this.context, index);
-		this.tabDisposeables.push(actionRunner);
 
 		const bar = new ActionBar(tabCloseContainer, { ariaLabel: nls.localize('araLabelTabActions', "Tab actions"), actionRunner });
 		bar.push(this.closeOneEditorAction, { icon: true, label: false, keybinding: this.getKeybindingLabel(this.closeOneEditorAction) });
@@ -550,12 +551,12 @@ export class TabsTitleControl extends TitleControl {
 		// Eventing
 		const disposable = this.hookTabListeners(tabContainer, index);
 
-		this.tabDisposeables.push(combinedDisposable([disposable, bar, editorLabel]));
+		this.tabDisposeables.push(combinedDisposable([disposable, bar, actionRunner, editorLabel]));
 
 		return tabContainer;
 	}
 
-	public layout(dimension: Dimension): void {
+	public layout(dimension: DOM.Dimension): void {
 		if (!this.activeTab || !dimension) {
 			return;
 		}
@@ -573,7 +574,7 @@ export class TabsTitleControl extends TitleControl {
 		}
 	}
 
-	private doLayout(dimension: Dimension): void {
+	private doLayout(dimension: DOM.Dimension): void {
 		const visibleContainerWidth = this.tabsContainer.offsetWidth;
 		const totalContainerWidth = this.tabsContainer.scrollWidth;
 
@@ -926,7 +927,7 @@ registerThemingParticipant((theme: ITheme, collector: ICssStyleCollector) => {
 	if (tabHoverBackground) {
 		collector.addRule(`
 			.monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.active .tabs-container > .tab:hover  {
-				background: ${tabHoverBackground} !important;
+				background-color: ${tabHoverBackground} !important;
 			}
 		`);
 	}
@@ -935,7 +936,7 @@ registerThemingParticipant((theme: ITheme, collector: ICssStyleCollector) => {
 	if (tabUnfocusedHoverBackground) {
 		collector.addRule(`
 			.monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.inactive .tabs-container > .tab:hover  {
-				background: ${tabUnfocusedHoverBackground} !important;
+				background-color: ${tabUnfocusedHoverBackground} !important;
 			}
 		`);
 	}

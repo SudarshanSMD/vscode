@@ -28,7 +28,6 @@ import { ITitleService } from 'vs/workbench/services/title/common/titleService';
 import { IWorkbenchThemeService, VS_HC_THEME, VS_DARK_THEME } from 'vs/workbench/services/themes/common/workbenchThemeService';
 import * as browser from 'vs/base/browser/browser';
 import { ICommandService } from 'vs/platform/commands/common/commands';
-import { IViewletService } from 'vs/workbench/services/viewlet/browser/viewlet';
 import { Position, IResourceInput, IUntitledResourceInput, IEditor } from 'vs/platform/editor/common/editor';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { KeyboardMapperFactory } from 'vs/workbench/services/keybinding/electron-browser/keybindingService';
@@ -85,7 +84,6 @@ export class ElectronWindow extends Themable {
 		@INotificationService private notificationService: INotificationService,
 		@ICommandService private commandService: ICommandService,
 		@IExtensionService private extensionService: IExtensionService,
-		@IViewletService private viewletService: IViewletService,
 		@IContextMenuService private contextMenuService: IContextMenuService,
 		@IKeybindingService private keybindingService: IKeybindingService,
 		@ITelemetryService private telemetryService: ITelemetryService,
@@ -131,7 +129,7 @@ export class ElectronWindow extends Themable {
 		});
 
 		// Support runAction event
-		ipc.on('vscode:runAction', (_event: any, request: IRunActionInWindowRequest) => {
+		ipc.on('vscode:runAction', (event: any, request: IRunActionInWindowRequest) => {
 			const args: any[] = [];
 
 			// If we run an action from the touchbar, we fill in the currently active resource
@@ -162,7 +160,7 @@ export class ElectronWindow extends Themable {
 		});
 
 		// Support resolve keybindings event
-		ipc.on('vscode:resolveKeybindings', (_event: any, rawActionIds: string) => {
+		ipc.on('vscode:resolveKeybindings', (event: any, rawActionIds: string) => {
 			let actionIds: string[] = [];
 			try {
 				actionIds = JSON.parse(rawActionIds);
@@ -178,7 +176,7 @@ export class ElectronWindow extends Themable {
 			}, () => errors.onUnexpectedError);
 		});
 
-		ipc.on('vscode:reportError', (_event: any, error: string) => {
+		ipc.on('vscode:reportError', (event: any, error: string) => {
 			if (error) {
 				const errorParsed = JSON.parse(error);
 				errorParsed.mainProcess = true;
@@ -187,13 +185,13 @@ export class ElectronWindow extends Themable {
 		});
 
 		// Support openFiles event for existing and new files
-		ipc.on('vscode:openFiles', (_event: any, request: IOpenFileRequest) => this.onOpenFiles(request));
+		ipc.on('vscode:openFiles', (event: any, request: IOpenFileRequest) => this.onOpenFiles(request));
 
 		// Support addFolders event if we have a workspace opened
-		ipc.on('vscode:addFolders', (_event: any, request: IAddFoldersRequest) => this.onAddFoldersRequest(request));
+		ipc.on('vscode:addFolders', (event: any, request: IAddFoldersRequest) => this.onAddFoldersRequest(request));
 
 		// Message support
-		ipc.on('vscode:showInfoMessage', (_event: any, message: string) => {
+		ipc.on('vscode:showInfoMessage', (event: any, message: string) => {
 			this.notificationService.info(message);
 		});
 
@@ -240,7 +238,7 @@ export class ElectronWindow extends Themable {
 		});
 
 		// keyboard layout changed event
-		ipc.on('vscode:accessibilitySupportChanged', (_event: any, accessibilitySupportEnabled: boolean) => {
+		ipc.on('vscode:accessibilitySupportChanged', (event: any, accessibilitySupportEnabled: boolean) => {
 			browser.setAccessibilitySupport(accessibilitySupportEnabled ? AccessibilitySupport.Enabled : AccessibilitySupport.Disabled);
 		});
 
@@ -305,11 +303,6 @@ export class ElectronWindow extends Themable {
 
 			return null;
 		};
-
-		// Send over all extension viewlets when extensions are ready
-		this.extensionService.whenInstalledExtensionsRegistered().then(() => {
-			ipc.send('vscode:extensionViewlets', JSON.stringify(this.viewletService.getViewlets().filter(v => !!v.extensionId).map(v => { return { id: v.id, label: v.name }; })));
-		});
 
 		// Emit event when vscode has loaded
 		this.lifecycleService.when(LifecyclePhase.Running).then(() => {

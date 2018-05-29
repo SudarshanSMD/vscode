@@ -18,7 +18,7 @@ export function areSameExtensions(a: IExtensionIdentifier, b: IExtensionIdentifi
 }
 
 export function getGalleryExtensionId(publisher: string, name: string): string {
-	return `${publisher}.${name.toLocaleLowerCase()}`;
+	return `${publisher.toLocaleLowerCase()}.${name.toLocaleLowerCase()}`;
 }
 
 export function getGalleryExtensionIdFromLocal(local: ILocalExtension): string {
@@ -69,6 +69,9 @@ export function getLocalExtensionTelemetryData(extension: ILocalExtension): any 
 		id: getGalleryExtensionIdFromLocal(extension),
 		name: extension.manifest.name,
 		galleryId: null,
+		publisherId: extension.metadata ? extension.metadata.publisherId : null,
+		publisherName: extension.manifest.publisher,
+		publisherDisplayName: extension.metadata ? extension.metadata.publisherDisplayName : null,
 		dependencies: extension.manifest.extensionDependencies && extension.manifest.extensionDependencies.length > 0
 	};
 }
@@ -79,9 +82,9 @@ export function getLocalExtensionTelemetryData(extension: ILocalExtension): any 
 		"id" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 		"name": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 		"galleryId": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
-		"galleryPublisherId": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
-		"galleryPublisherName": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
-		"galleryPublisherDisplayName": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
+		"publisherId": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+		"publisherName": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+		"publisherDisplayName": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 		"dependencies": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "isMeasurement": true },
 		"${include}": [
 			"${GalleryExtensionTelemetryData2}"
@@ -93,9 +96,9 @@ export function getGalleryExtensionTelemetryData(extension: IGalleryExtension): 
 		id: extension.identifier.id,
 		name: extension.name,
 		galleryId: extension.identifier.uuid,
-		galleryPublisherId: extension.publisherId,
-		galleryPublisherName: extension.publisher,
-		galleryPublisherDisplayName: extension.publisherDisplayName,
+		publisherId: extension.publisherId,
+		publisherName: extension.publisher,
+		publisherDisplayName: extension.publisherDisplayName,
 		dependencies: extension.properties.dependencies.length > 0,
 		...extension.telemetryData
 	};

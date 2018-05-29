@@ -54,13 +54,13 @@ export class ViewletDescriptor extends CompositeDescriptor<Viewlet> {
 		name: string,
 		cssClass?: string,
 		order?: number,
-		private _extensionId?: string
+		private _iconUrl?: string
 	) {
 		super(ctor, id, name, cssClass, order, id);
 	}
 
-	public get extensionId(): string {
-		return this._extensionId;
+	public get iconUrl(): string {
+		return this._iconUrl;
 	}
 }
 
@@ -154,7 +154,7 @@ export class ToggleViewletAction extends Action {
 		const activeViewlet = this.viewletService.getActiveViewlet();
 		const activeElement = document.activeElement;
 
-		return activeViewlet && activeElement && DOM.isAncestor(activeElement, (<Viewlet>activeViewlet).getContainer().getHTMLElement());
+		return activeViewlet && activeElement && DOM.isAncestor(activeElement, (<Viewlet>activeViewlet).getContainer());
 	}
 }
 
