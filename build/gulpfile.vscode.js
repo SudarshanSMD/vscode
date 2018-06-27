@@ -216,7 +216,7 @@ function computeChecksum(filename) {
 function packageTask(platform, arch, opts) {
 	opts = opts || {};
 
-	const destination = path.join(path.dirname(root), 'VSCode') + (platform ? '-' + platform : '') + (arch ? '-' + arch : '');
+	const destination = path.join(path.dirname(__dirname), 'RCCode') + (platform ? '-' + platform : '') + (arch ? '-' + arch : '');
 	platform = platform || process.platform;
 
 	return () => {
