@@ -11,6 +11,8 @@ import { Event } from 'vs/base/common/event';
 import { IPager } from 'vs/base/common/paging';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 import { ILocalization } from 'vs/platform/localizations/common/localizations';
+import URI from 'vs/base/common/uri';
+import { IWorkspaceFolder, IWorkspace } from 'vs/platform/workspace/common/workspace';
 
 export const EXTENSION_IDENTIFIER_PATTERN = '^([a-z0-9A-Z][a-z0-9\-A-Z]*)\\.([a-z0-9A-Z][a-z0-9\-A-Z]*)$';
 export const EXTENSION_IDENTIFIER_REGEX = new RegExp(EXTENSION_IDENTIFIER_PATTERN);
@@ -205,7 +207,7 @@ export interface ILocalExtension {
 	identifier: IExtensionIdentifier;
 	manifest: IExtensionManifest;
 	metadata: IGalleryMetadata;
-	path: string;
+	location: URI;
 	readmeUrl: string;
 	changelogUrl: string;
 }
@@ -311,6 +313,20 @@ export interface IExtensionManagementService {
 	updateMetadata(local: ILocalExtension, metadata: IGalleryMetadata): TPromise<ILocalExtension>;
 }
 
+export const IExtensionManagementServerService = createDecorator<IExtensionManagementServerService>('extensionManagementServerService');
+
+export interface IExtensionManagementServer {
+	extensionManagementService: IExtensionManagementService;
+	location: URI;
+}
+
+export interface IExtensionManagementServerService {
+	_serviceBrand: any;
+	readonly extensionManagementServers: IExtensionManagementServer[];
+	getDefaultExtensionManagementServer(): IExtensionManagementServer;
+	getExtensionManagementServer(location: URI): IExtensionManagementServer;
+}
+
 export enum EnablementState {
 	Disabled,
 	WorkspaceDisabled,
@@ -362,24 +378,49 @@ export interface IExtensionEnablementService {
 	setEnablement(extension: ILocalExtension, state: EnablementState): TPromise<boolean>;
 }
 
+export interface IExtensionsConfigContent {
+	recommendations: string[];
+	unwantedRecommendations: string[];
+}
+
+export type RecommendationChangeNotification = {
+	extensionId: string,
+	isRecommended: boolean
+};
+
+export type DynamicRecommendation = 'dynamic';
+export type ExecutableRecommendation = 'executable';
+export type CachedRecommendation = 'cached';
+export type ApplicationRecommendation = 'application';
+export type ExtensionRecommendationSource = IWorkspace | IWorkspaceFolder | URI | DynamicRecommendation | ExecutableRecommendation | CachedRecommendation | ApplicationRecommendation;
+
+export interface IExtensionRecommendation {
+	extensionId: string;
+	sources: ExtensionRecommendationSource[];
+}
+
 export const IExtensionTipsService = createDecorator<IExtensionTipsService>('extensionTipsService');
 
 export interface IExtensionTipsService {
 	_serviceBrand: any;
 	getAllRecommendationsWithReason(): { [id: string]: { reasonId: ExtensionRecommendationReason, reasonText: string }; };
-	getFileBasedRecommendations(): string[];
-	getOtherRecommendations(): TPromise<string[]>;
-	getWorkspaceRecommendations(): TPromise<string[]>;
-	getKeymapRecommendations(): string[];
+	getFileBasedRecommendations(): IExtensionRecommendation[];
+	getOtherRecommendations(): TPromise<IExtensionRecommendation[]>;
+	getWorkspaceRecommendations(): TPromise<IExtensionRecommendation[]>;
+	getKeymapRecommendations(): IExtensionRecommendation[];
+	getAllRecommendations(): TPromise<IExtensionRecommendation[]>;
 	getKeywordsForExtension(extension: string): string[];
 	getRecommendationsForExtension(extension: string): string[];
+	toggleIgnoredRecommendation(extensionId: string, shouldIgnore: boolean): void;
+	onRecommendationChange: Event<RecommendationChangeNotification>;
 }
 
 export enum ExtensionRecommendationReason {
 	Workspace,
 	File,
 	Executable,
-	DynamicWorkspace
+	DynamicWorkspace,
+	Experimental
 }
 
 export const ExtensionsLabel = localize('extensions', "Extensions");

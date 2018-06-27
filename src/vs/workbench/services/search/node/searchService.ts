@@ -31,7 +31,8 @@ export class SearchService implements ISearchService {
 	public _serviceBrand: any;
 
 	private diskSearch: DiskSearch;
-	private readonly searchProvider: ISearchResultProvider[] = [];
+	private readonly searchProviders: ISearchResultProvider[] = [];
+	private fileSearchProvider: ISearchResultProvider;
 	private forwardingTelemetry: PPromise<void, ITelemetryEvent>;
 
 	constructor(
@@ -46,13 +47,22 @@ export class SearchService implements ISearchService {
 		this.diskSearch = new DiskSearch(!environmentService.isBuilt || environmentService.verbose, /*timeout=*/undefined, environmentService.debugSearch);
 	}
 
-	public registerSearchResultProvider(provider: ISearchResultProvider): IDisposable {
-		this.searchProvider.push(provider);
+	public registerSearchResultProvider(scheme: string, provider: ISearchResultProvider): IDisposable {
+		if (scheme === 'file') {
+			this.fileSearchProvider = provider;
+		} else {
+			this.searchProviders.push(provider);
+		}
+
 		return {
 			dispose: () => {
-				const idx = this.searchProvider.indexOf(provider);
-				if (idx >= 0) {
-					this.searchProvider.splice(idx, 1);
+				if (scheme === 'file') {
+					this.fileSearchProvider = null;
+				} else {
+					const idx = this.searchProviders.indexOf(provider);
+					if (idx >= 0) {
+						this.searchProviders.splice(idx, 1);
+					}
 				}
 			}
 		};
@@ -114,36 +124,37 @@ export class SearchService implements ISearchService {
 					}
 				});
 
-			const enableSearchProviders = this.configurationService.getValue<ISearchConfiguration>().search.enableSearchProviders;
-			const providerPromise = enableSearchProviders ?
-				this.extensionService.whenInstalledExtensionsRegistered().then(() => {
-					// If no search providers are registered, fall back on DiskSearch
-					// TODO@roblou this is not properly waiting for search-rg to finish registering itself
-					if (this.searchProvider.length) {
-						return TPromise.join(this.searchProvider.map(p => searchWithProvider(p)))
-							.then(completes => {
-								completes = completes.filter(c => !!c);
-								if (!completes.length) {
-									return null;
-								}
+			const providerPromise = this.extensionService.whenInstalledExtensionsRegistered().then(() => {
+				// TODO@roblou this is not properly waiting for search-rg to finish registering itself
+				// If no search provider has been registered for the 'file' schema, fall back on DiskSearch
+				const providers = [
+					this.fileSearchProvider || this.diskSearch,
+					...this.searchProviders
+				];
+				return TPromise.join(providers.map(p => searchWithProvider(p)))
+					.then(completes => {
+						completes = completes.filter(c => !!c);
+						if (!completes.length) {
+							return null;
+						}
 
-								return <ISearchComplete>{
-									limitHit: completes[0] && completes[0].limitHit,
-									stats: completes[0].stats,
-									results: arrays.flatten(completes.map(c => c.results))
-								};
-							}, errs => {
-								errs = errs.filter(e => !!e);
-								return TPromise.wrapError(errs[0]);
-							});
-					} else {
-						return searchWithProvider(this.diskSearch);
-					}
-				}) :
-				searchWithProvider(this.diskSearch);
+						return <ISearchComplete>{
+							limitHit: completes[0] && completes[0].limitHit,
+							stats: completes[0].stats,
+							results: arrays.flatten(completes.map(c => c.results))
+						};
+					}, errs => {
+						if (!Array.isArray(errs)) {
+							errs = [errs];
+						}
+
+						errs = errs.filter(e => !!e);
+						return TPromise.wrapError(errs[0]);
+					});
+			});
 
 			combinedPromise = providerPromise.then(value => {
-				this.logService.debug(`SearchService#search took ${Date.now() - startTime}ms ${enableSearchProviders ? 'with' : 'without'} search-rg`);
+				this.logService.debug(`SearchService#search: ${Date.now() - startTime}ms`);
 				const values = [value];
 
 				const result: ISearchComplete = {

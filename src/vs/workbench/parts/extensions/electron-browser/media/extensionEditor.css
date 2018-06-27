@@ -14,14 +14,19 @@
 
 .extension-editor > .header {
 	display: flex;
-	height: 128px;
-	padding: 20px;
+	height: 134px;
+	padding-top: 20px;
+	padding-bottom: 14px;
+	padding-left: 20px;
+	padding-right: 20px;
 	overflow: hidden;
 	font-size: 14px;
 }
 
-.extension-editor > .header.recommended {
-	height: 140px;
+.extension-editor > .header.recommended,
+.extension-editor > .header.recommendation-ignored
+{
+	height: 146px;
 }
 
 .extension-editor > .header > .icon {
@@ -124,17 +129,52 @@
 
 .extension-editor > .header > .details > .actions > .monaco-action-bar > .actions-container > .action-item > .action-label {
 	font-weight: 600;
+	margin: 4px;
 	padding: 1px 6px;
 }
 
-.extension-editor > .header.recommended > .details > .recommendation {
+.extension-editor > .header > .details > .recommendation {
 	display: none;
 }
 
-.extension-editor > .header.recommended > .details > .recommendation {
-	display: block;
-	margin-top: 10px;
+.extension-editor > .header.recommended > .details > .recommendation,
+.extension-editor > .header.recommendation-ignored > .details > .recommendation {
+	display: flex;
+	margin-top: 0;
 	font-size: 13px;
+	height: 25px;
+	font-style: italic;
+}
+
+.extension-editor > .header.recommended > .details > .recommendation > .monaco-action-bar,
+.extension-editor > .header.recommendation-ignored > .details > .recommendation > .monaco-action-bar {
+	margin-left: 4px;
+	margin-top: 2px;
+	font-style: normal;
+}
+
+.extension-editor > .header > .details > .recommendation > .recommendation-text {
+	margin-top: 5px;
+}
+.extension-editor > .header > .details > .recommendation > .monaco-action-bar .action-label {
+	margin-top: 4px;
+	margin-left: 4px;
+}
+
+.extension-editor > .header.recommendation-ignored > .details > .recommendation > .monaco-action-bar .ignore {
+	display: none;
+}
+
+.extension-editor > .header.recommendation-ignored > .details > .recommendation > .monaco-action-bar .undo-ignore {
+	display: block;
+}
+
+.extension-editor > .header.recommended > .details > .recommendation > .monaco-action-bar .ignore {
+	display: block;
+}
+
+.extension-editor > .header.recommended > .details > .recommendation > .monaco-action-bar .undo-ignore {
+	display: none;
 }
 
 .extension-editor > .body {
@@ -247,6 +287,7 @@
 
 .extension-editor > .body > .content table th {
 	text-align: left;
+	word-break: keep-all;
 }
 
 .extension-editor > .body > .content table code:not(:empty) {
@@ -313,6 +354,7 @@
 .extension-editor .subcontent .monaco-tree-row .dependency > .icon {
 	height: 40px;
 	width: 40px;
+	object-fit: contain;
 }
 
 .extension-editor .subcontent .monaco-tree-row .dependency > .details > .header > .name {

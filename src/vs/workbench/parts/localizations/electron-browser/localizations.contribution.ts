@@ -124,11 +124,11 @@ export class LocalizationWorkbenchContribution extends Disposable implements IWo
 		if (!this.galleryService.isEnabled()) {
 			return;
 		}
-		if (language !== 'en' && language !== 'en_us') {
+		if (language !== 'en' && language.indexOf('en-') !== -1) {
 			this.migrateToMarketplaceLanguagePack(language);
 			return;
 		}
-		if (locale === 'en' || locale === 'en_us') {
+		if (locale === 'en' || locale.indexOf('en-') !== -1) {
 			return;
 		}
 		if (language === locale || languagePackSuggestionIgnoreList.indexOf(language) > -1) {
@@ -156,12 +156,24 @@ export class LocalizationWorkbenchContribution extends Disposable implements IWo
 						return;
 					}
 
-					this.galleryService.getCoreTranslation(extensionToFetchTranslationsFrom, locale)
-						.then(translation => {
-							const translations = {
-								...minimumTranslatedStrings,
-								...(translation && translation.contents ? translation.contents['vs/platform/node/minimalTranslations'] : {})
-							};
+					TPromise.join([this.galleryService.getManifest(extensionToFetchTranslationsFrom), this.galleryService.getCoreTranslation(extensionToFetchTranslationsFrom, locale)])
+						.then(([manifest, translation]) => {
+							const loc = manifest && manifest.contributes && manifest.contributes.localizations && manifest.contributes.localizations.filter(x => x.languageId.toLowerCase() === locale)[0];
+							const languageName = loc ? (loc.languageName || locale) : locale;
+							const languageDisplayName = loc ? (loc.localizedLanguageName || loc.languageName || locale) : locale;
+							const translationsFromPack = translation && translation.contents ? translation.contents['vs/platform/node/minimalTranslations'] : {};
+							const promptMessageKey = extensionToInstall ? 'installAndRestartMessage' : 'showLanguagePackExtensions';
+							const useEnglish = !translationsFromPack[promptMessageKey];
+
+							const translations = {};
+							Object.keys(minimumTranslatedStrings).forEach(key => {
+								if (!translationsFromPack[key] || useEnglish) {
+									translations[key] = minimumTranslatedStrings[key].replace('{0}', languageName);
+								} else {
+									translations[key] = `${translationsFromPack[key].replace('{0}', languageDisplayName)} (${minimumTranslatedStrings[key].replace('{0}', languageName)})`;
+								}
+							});
+
 							const logUserReaction = (userReaction: string) => {
 								/* __GDPR__
 									"languagePackSuggestion:popup" : {
@@ -185,14 +197,6 @@ export class LocalizationWorkbenchContribution extends Disposable implements IWo
 								}
 							};
 
-							const installAction = {
-								label: translations['install'],
-								run: () => {
-									logUserReaction('install');
-									this.installExtension(extensionToInstall);
-								}
-							};
-
 							const installAndRestartAction = {
 								label: translations['installAndRestart'],
 								run: () => {
@@ -201,14 +205,12 @@ export class LocalizationWorkbenchContribution extends Disposable implements IWo
 								}
 							};
 
-							const mainActions = extensionToInstall ? [installAndRestartAction, installAction] : [searchAction];
-							const promptMessage = translations[extensionToInstall ? 'installAndRestartMessage' : 'showLanguagePackExtensions']
-								.replace('{0}', locale);
+							const promptMessage = translations[promptMessageKey];
 
 							this.notificationService.prompt(
 								Severity.Info,
 								promptMessage,
-								[...mainActions,
+								[extensionToInstall ? installAndRestartAction : searchAction,
 								{
 									label: localize('neverAgain', "Don't Show Again"),
 									isSecondary: true,
@@ -294,7 +296,7 @@ ExtensionsRegistry.registerExtensionPoint('localizations', [], {
 	items: {
 		type: 'object',
 		required: ['languageId', 'translations'],
-		defaultSnippets: [{ body: { languageId: '', languageName: '', languageNameLocalized: '', translations: [{ id: 'vscode', path: '' }] } }],
+		defaultSnippets: [{ body: { languageId: '', languageName: '', localizedLanguageName: '', translations: [{ id: 'vscode', path: '' }] } }],
 		properties: {
 			languageId: {
 				description: localize('vscode.extension.contributes.localizations.languageId', 'Id of the language into which the display strings are translated.'),
@@ -304,7 +306,7 @@ ExtensionsRegistry.registerExtensionPoint('localizations', [], {
 				description: localize('vscode.extension.contributes.localizations.languageName', 'Name of the language in English.'),
 				type: 'string'
 			},
-			languageNameLocalized: {
+			localizedLanguageName: {
 				description: localize('vscode.extension.contributes.localizations.languageNameLocalized', 'Name of the language in contributed language.'),
 				type: 'string'
 			},

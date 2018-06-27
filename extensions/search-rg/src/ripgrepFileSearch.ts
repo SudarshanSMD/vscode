@@ -7,8 +7,8 @@ import * as cp from 'child_process';
 import { Readable } from 'stream';
 import { NodeStringDecoder, StringDecoder } from 'string_decoder';
 import * as vscode from 'vscode';
-import { rgPath } from 'vscode-ripgrep';
 import { normalizeNFC, normalizeNFD } from './normalization';
+import { rgPath } from './ripgrep';
 import { anchorGlob } from './ripgrepHelpers';
 import { rgErrorMsgForDisplay } from './ripgrepTextSearch';
 
@@ -115,31 +115,36 @@ export class RipgrepFileSearchEngine {
 	}
 
 	private collectStdout(cmd: cp.ChildProcess, cb: (err: Error, stdout?: string, last?: boolean) => void): void {
-		let done = (err: Error, stdout?: string, last?: boolean) => {
+		let onData = (err: Error, stdout?: string, last?: boolean) => {
 			if (err || last) {
-				done = () => { };
+				onData = () => { };
 			}
 
 			cb(err, stdout, last);
 		};
 
-		this.forwardData(cmd.stdout, done);
+		if (cmd.stdout) {
+			this.forwardData(cmd.stdout, onData);
+		} else {
+			this.outputChannel.appendLine('stdout is null');
+		}
+
 		const stderr = this.collectData(cmd.stderr);
 
 		let gotData = false;
 		cmd.stdout.once('data', () => gotData = true);
 
 		cmd.on('error', (err: Error) => {
-			done(err);
+			onData(err);
 		});
 
 		cmd.on('close', (code: number) => {
 			// ripgrep returns code=1 when no results are found
 			let stderrText, displayMsg: string;
 			if (!gotData && (stderrText = this.decodeData(stderr)) && (displayMsg = rgErrorMsgForDisplay(stderrText))) {
-				done(new Error(`command failed with error code ${code}: ${displayMsg}`));
+				onData(new Error(`command failed with error code ${code}: ${displayMsg}`));
 			} else {
-				done(null, '', true);
+				onData(null, '', true);
 			}
 		});
 	}

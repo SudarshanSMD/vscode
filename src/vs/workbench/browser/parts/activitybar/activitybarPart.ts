@@ -30,10 +30,11 @@ import { Dimension, createCSSRule } from 'vs/base/browser/dom';
 import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import URI from 'vs/base/common/uri';
 
 interface IPlaceholderComposite {
 	id: string;
-	iconUrl: string;
+	iconUrl: URI;
 }
 
 export class ActivitybarPart extends Part {
@@ -66,7 +67,7 @@ export class ActivitybarPart extends Part {
 		@IPartService private partService: IPartService,
 		@IThemeService themeService: IThemeService,
 		@IStorageService private storageService: IStorageService,
-		@IExtensionService extensionService: IExtensionService,
+		@IExtensionService extensionService: IExtensionService
 	) {
 		super(id, { hasTitle: false }, themeService);
 
@@ -89,7 +90,19 @@ export class ActivitybarPart extends Part {
 			overflowActionSize: ActivitybarPart.ACTION_HEIGHT
 		});
 		const previousState = this.storageService.get(ActivitybarPart.PLACEHOLDER_VIEWLETS, StorageScope.GLOBAL, void 0);
-		this.placeholderComposites = previousState ? JSON.parse(previousState) : this.compositeBar.getCompositesFromStorage().map(id => (<IPlaceholderComposite>{ id, iconUrl: void 0 }));
+		if (previousState) {
+			let parsedPreviousState = <IPlaceholderComposite[]>JSON.parse(previousState);
+			parsedPreviousState.forEach((s) => {
+				if (typeof s.iconUrl === 'object') {
+					s.iconUrl = URI.revive(s.iconUrl);
+				} else {
+					s.iconUrl = void 0;
+				}
+			});
+			this.placeholderComposites = parsedPreviousState;
+		} else {
+			this.placeholderComposites = this.compositeBar.getCompositesFromStorage().map(id => (<IPlaceholderComposite>{ id, iconUrl: void 0 }));
+		}
 
 		this.registerListeners();
 		this.updateCompositebar();
@@ -268,10 +281,10 @@ export class ActivitybarPart extends Part {
 	private enableCompositeActions(viewlet: ViewletDescriptor): void {
 		const { activityAction, pinnedAction } = this.getCompositeActions(viewlet.id);
 		if (activityAction instanceof PlaceHolderViewletActivityAction) {
-			activityAction.enable(viewlet);
+			activityAction.setActivity(viewlet);
 		}
 		if (pinnedAction instanceof PlaceHolderToggleCompositePinnedAction) {
-			pinnedAction.enable(viewlet);
+			pinnedAction.setActivity(viewlet);
 		}
 	}
 
@@ -326,7 +339,7 @@ export class ActivitybarPart extends Part {
 class PlaceHolderViewletActivityAction extends ViewletActivityAction {
 
 	constructor(
-		id: string, iconUrl: string,
+		id: string, iconUrl: URI,
 		@IViewletService viewletService: IViewletService,
 		@IPartService partService: IPartService,
 		@ITelemetryService telemetryService: ITelemetryService
@@ -338,9 +351,8 @@ class PlaceHolderViewletActivityAction extends ViewletActivityAction {
 		this.enabled = false;
 	}
 
-	enable(activity: IActivity): void {
-		this.label = activity.name;
-		this.class = activity.cssClass;
+	setActivity(activity: IActivity): void {
+		this.activity = activity;
 		this.enabled = true;
 	}
 
@@ -355,7 +367,7 @@ class PlaceHolderToggleCompositePinnedAction extends ToggleCompositePinnedAction
 		this.enabled = false;
 	}
 
-	enable(activity: IActivity): void {
+	setActivity(activity: IActivity): void {
 		this.label = activity.name;
 		this.enabled = true;
 	}

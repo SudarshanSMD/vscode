@@ -723,14 +723,22 @@ export function isAncestor(testChild: Node, testAncestor: Node): boolean {
 	return false;
 }
 
-export function findParentWithClass(node: HTMLElement, clazz: string, stopAtClazz?: string): HTMLElement {
+export function findParentWithClass(node: HTMLElement, clazz: string, stopAtClazzOrNode?: string | HTMLElement): HTMLElement {
 	while (node) {
 		if (hasClass(node, clazz)) {
 			return node;
 		}
 
-		if (stopAtClazz && hasClass(node, stopAtClazz)) {
-			return null;
+		if (stopAtClazzOrNode) {
+			if (typeof stopAtClazzOrNode === 'string') {
+				if (hasClass(node, stopAtClazzOrNode)) {
+					return null;
+				}
+			} else {
+				if (node === stopAtClazzOrNode) {
+					return null;
+				}
+			}
 		}
 
 		node = <HTMLElement>node.parentNode;
@@ -811,6 +819,7 @@ export const EventType = {
 	MOUSE_OVER: 'mouseover',
 	MOUSE_MOVE: 'mousemove',
 	MOUSE_OUT: 'mouseout',
+	MOUSE_LEAVE: 'mouseleave',
 	CONTEXT_MENU: 'contextmenu',
 	WHEEL: 'wheel',
 	// Keyboard

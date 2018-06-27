@@ -14,7 +14,6 @@ import { Separator } from 'vs/base/browser/ui/actionbar/actionbar';
 import pkg from 'vs/platform/node/package';
 import product from 'vs/platform/node/product';
 import URI from 'vs/base/common/uri';
-import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
 import { IActivityService, NumberBadge, IBadge, ProgressBadge } from 'vs/workbench/services/activity/common/activity';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { IGlobalActivity } from 'vs/workbench/common/activity';
@@ -30,6 +29,7 @@ import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
 import { IWindowService } from 'vs/platform/windows/common/windows';
 import { ReleaseNotesManager } from './releaseNotesEditor';
 import { isWindows } from 'vs/base/common/platform';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 
 let releaseNotesManager: ReleaseNotesManager | undefined = undefined;
 
@@ -113,14 +113,15 @@ export class ProductContribution implements IWorkbenchContribution {
 		@IStorageService storageService: IStorageService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@INotificationService notificationService: INotificationService,
-		@IWorkbenchEditorService editorService: IWorkbenchEditorService,
 		@IEnvironmentService environmentService: IEnvironmentService,
-		@IOpenerService openerService: IOpenerService
+		@IOpenerService openerService: IOpenerService,
+		@IConfigurationService configurationService: IConfigurationService
 	) {
 		const lastVersion = storageService.get(ProductContribution.KEY, StorageScope.GLOBAL, '');
+		const shouldShowReleaseNotes = configurationService.getValue<boolean>('update.showReleaseNotes');
 
 		// was there an update? if so, open release notes
-		if (!environmentService.skipReleaseNotes && product.releaseNotesUrl && lastVersion && pkg.version !== lastVersion) {
+		if (shouldShowReleaseNotes && !environmentService.skipReleaseNotes && product.releaseNotesUrl && lastVersion && pkg.version !== lastVersion) {
 			showReleaseNotes(instantiationService, pkg.version)
 				.then(undefined, () => {
 					notificationService.prompt(
@@ -177,7 +178,6 @@ export class Win3264BitContribution implements IWorkbenchContribution {
 		@IStorageService storageService: IStorageService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@INotificationService notificationService: INotificationService,
-		@IWorkbenchEditorService editorService: IWorkbenchEditorService,
 		@IEnvironmentService environmentService: IEnvironmentService
 	) {
 		if (environmentService.disableUpdates) {
@@ -245,7 +245,6 @@ export class UpdateContribution implements IGlobalActivity {
 		@INotificationService private notificationService: INotificationService,
 		@IDialogService private dialogService: IDialogService,
 		@IUpdateService private updateService: IUpdateService,
-		@IWorkbenchEditorService editorService: IWorkbenchEditorService,
 		@IActivityService private activityService: IActivityService,
 		@IWindowService private windowService: IWindowService
 	) {
@@ -350,7 +349,7 @@ export class UpdateContribution implements IGlobalActivity {
 		);
 	}
 
-	// windows fast updates
+	// windows fast updates (target === system)
 	private onUpdateDownloaded(update: IUpdate): void {
 		if (!this.shouldShowNotification()) {
 			return;
@@ -378,6 +377,11 @@ export class UpdateContribution implements IGlobalActivity {
 
 	// windows fast updates
 	private onUpdateUpdating(update: IUpdate): void {
+		if (isWindows && product.target === 'user') {
+			return;
+		}
+
+		// windows fast updates (target === system)
 		const neverShowAgain = new NeverShowAgain('update/win32-fast-updates', this.storageService);
 
 		if (!neverShowAgain.shouldShow()) {
@@ -400,10 +404,11 @@ export class UpdateContribution implements IGlobalActivity {
 
 	// windows and mac
 	private onUpdateReady(update: IUpdate): void {
-		if (!isWindows && !this.shouldShowNotification()) {
+		if (!(isWindows && product.target !== 'user') && !this.shouldShowNotification()) {
 			return;
 		}
 
+		// windows user fast updates and mac
 		this.notificationService.prompt(
 			severity.Info,
 			nls.localize('updateAvailableAfterRestart', "Restart {0} to apply the latest update.", product.nameLong),

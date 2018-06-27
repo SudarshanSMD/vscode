@@ -61,6 +61,8 @@ export interface IEnvConfiguration {
 	accessibilitySupport: platform.AccessibilitySupport;
 }
 
+const hasOwnProperty = Object.hasOwnProperty;
+
 export abstract class CommonEditorConfiguration extends Disposable implements editorCommon.IConfiguration {
 
 	protected _rawOptions: editorOptions.IEditorOptions;
@@ -135,7 +137,53 @@ export abstract class CommonEditorConfiguration extends Disposable implements ed
 		return editorOptions.InternalEditorOptionsFactory.createInternalEditorOptions(env, opts);
 	}
 
+	private static _primitiveArrayEquals(a: any[], b: any[]): boolean {
+		if (a.length !== b.length) {
+			return false;
+		}
+		for (let i = 0; i < a.length; i++) {
+			if (a[i] !== b[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static _subsetEquals(base: object, subset: object): boolean {
+		for (let key in subset) {
+			if (hasOwnProperty.call(subset, key)) {
+				const subsetValue = subset[key];
+				const baseValue = base[key];
+
+				if (baseValue === subsetValue) {
+					continue;
+				}
+				if (Array.isArray(baseValue) && Array.isArray(subsetValue)) {
+					if (!this._primitiveArrayEquals(baseValue, subsetValue)) {
+						return false;
+					}
+					continue;
+				}
+				if (typeof baseValue === 'object' && typeof subsetValue === 'object') {
+					if (!this._subsetEquals(baseValue, subsetValue)) {
+						return false;
+					}
+					continue;
+				}
+
+				return false;
+			}
+		}
+		return true;
+	}
+
 	public updateOptions(newOptions: editorOptions.IEditorOptions): void {
+		if (typeof newOptions === 'undefined') {
+			return;
+		}
+		if (CommonEditorConfiguration._subsetEquals(this._rawOptions, newOptions)) {
+			return;
+		}
 		this._rawOptions = objects.mixin(this._rawOptions, newOptions || {});
 		this._validatedOptions = editorOptions.EditorOptionsValidator.validate(this._rawOptions, EDITOR_DEFAULTS);
 		this._recomputeOptions();
@@ -260,7 +308,7 @@ const editorConfiguration: IConfigurationNode = {
 		'editor.scrollBeyondLastColumn': {
 			'type': 'number',
 			'default': EDITOR_DEFAULTS.viewInfo.scrollBeyondLastColumn,
-			'description': nls.localize('scrollBeyondLastColumn', "Controls if the editor will scroll beyond the last column")
+			'description': nls.localize('scrollBeyondLastColumn', "Controls the number of extra characters beyond which the editor will scroll horizontally")
 		},
 		'editor.smoothScrolling': {
 			'type': 'boolean',
@@ -293,6 +341,21 @@ const editorConfiguration: IConfigurationNode = {
 			'type': 'number',
 			'default': EDITOR_DEFAULTS.viewInfo.minimap.maxColumn,
 			'description': nls.localize('minimap.maxColumn', "Limit the width of the minimap to render at most a certain number of columns")
+		},
+		'editor.hover.enabled': {
+			'type': 'boolean',
+			'default': EDITOR_DEFAULTS.contribInfo.hover.enabled,
+			'description': nls.localize('hover.enabled', "Controls if the hover is shown")
+		},
+		'editor.hover.delay': {
+			'type': 'number',
+			'default': EDITOR_DEFAULTS.contribInfo.hover.delay,
+			'description': nls.localize('hover.delay', "Controls the delay after which to show the hover")
+		},
+		'editor.hover.sticky': {
+			'type': 'boolean',
+			'default': EDITOR_DEFAULTS.contribInfo.hover.sticky,
+			'description': nls.localize('hover.sticky', "Controls if the hover should remain visible when mouse is moved over it")
 		},
 		'editor.find.seedSearchStringFromSelection': {
 			'type': 'boolean',
@@ -572,6 +635,11 @@ const editorConfiguration: IConfigurationNode = {
 			default: EDITOR_DEFAULTS.viewInfo.renderIndentGuides,
 			description: nls.localize('renderIndentGuides', "Controls whether the editor should render indent guides")
 		},
+		'editor.highlightActiveIndentGuide': {
+			'type': 'boolean',
+			default: EDITOR_DEFAULTS.viewInfo.highlightActiveIndentGuide,
+			description: nls.localize('highlightActiveIndentGuide', "Controls whether the editor should highlight the active indent guide")
+		},
 		'editor.renderLineHighlight': {
 			'type': 'string',
 			'enum': ['none', 'gutter', 'line', 'all'],
@@ -644,6 +712,11 @@ const editorConfiguration: IConfigurationNode = {
 			],
 			'default': EDITOR_DEFAULTS.accessibilitySupport,
 			'description': nls.localize('accessibilitySupport', "Controls whether the editor should run in a mode where it is optimized for screen readers.")
+		},
+		'editor.showUnused': {
+			'type': 'boolean',
+			'default': EDITOR_DEFAULTS.showUnused,
+			'description': nls.localize('showUnused', "Controls fading out of unused code.")
 		},
 		'editor.links': {
 			'type': 'boolean',

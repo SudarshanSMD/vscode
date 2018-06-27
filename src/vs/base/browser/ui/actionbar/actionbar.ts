@@ -167,12 +167,14 @@ export class BaseActionItem implements IActionItem {
 	public focus(): void {
 		if (this.builder) {
 			this.builder.domFocus();
+			this.builder.addClass('focused');
 		}
 	}
 
 	public blur(): void {
 		if (this.builder) {
 			this.builder.domBlur();
+			this.builder.removeClass('focused');
 		}
 	}
 
@@ -372,7 +374,6 @@ export class ActionBar implements IActionRunner {
 
 	// Items
 	public items: IActionItem[];
-
 	private focusedItem: number;
 	private focusTracker: DOM.IFocusTracker;
 
@@ -487,7 +488,7 @@ export class ActionBar implements IActionRunner {
 		this.actionsList = document.createElement('ul');
 		this.actionsList.className = 'actions-container';
 		if (this.options.isMenu) {
-			this.actionsList.setAttribute('role', 'menubar');
+			this.actionsList.setAttribute('role', 'menu');
 		} else {
 			this.actionsList.setAttribute('role', 'toolbar');
 		}

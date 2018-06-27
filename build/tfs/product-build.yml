@@ -42,7 +42,7 @@ phases:
   - powershell: |
       $ErrorActionPreference = "Stop"
       npm run gulp -- "electron-$(VSCODE_ARCH)"
-      .\scripts\test.bat --build --tfs
+      .\scripts\test.bat --build --tfs "Unit Tests"
       # yarn smoketest -- --build "$(agent.builddirectory)\VSCode-win32-$(VSCODE_ARCH)"
     name: test
 
@@ -127,7 +127,7 @@ phases:
 
   - powershell: |
       $ErrorActionPreference = "Stop"
-      npm run gulp -- "vscode-win32-$(VSCODE_ARCH)-archive" "vscode-win32-$(VSCODE_ARCH)-setup"
+      npm run gulp -- "vscode-win32-$(VSCODE_ARCH)-archive" "vscode-win32-$(VSCODE_ARCH)-system-setup" "vscode-win32-$(VSCODE_ARCH)-user-setup"
 
   - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@1
     inputs:
@@ -212,7 +212,8 @@ phases:
       $ErrorActionPreference = "Stop"
       $Repo = "$(pwd)"
       $Root = "$Repo\.."
-      $Exe = "$Repo\.build\win32-$(VSCODE_ARCH)\setup\VSCodeSetup.exe"
+      $SystemExe = "$Repo\.build\win32-$(VSCODE_ARCH)\system-setup\VSCodeSetup.exe"
+      $UserExe = "$Repo\.build\win32-$(VSCODE_ARCH)\user-setup\VSCodeSetup.exe"
       $Zip = "$Repo\.build\win32-$(VSCODE_ARCH)\archive\VSCode-win32-$(VSCODE_ARCH).zip"
       $Build = "$Root\VSCode-win32-$(VSCODE_ARCH)"
 
@@ -227,7 +228,8 @@ phases:
       $assetPlatform = if ("$(VSCODE_ARCH)" -eq "ia32") { "win32" } else { "win32-x64" }
 
       node build/tfs/common/publish.js $Quality "$global:assetPlatform-archive" archive "VSCode-win32-$(VSCODE_ARCH)-$Version.zip" $Version true $Zip
-      node build/tfs/common/publish.js $Quality "$global:assetPlatform" setup "VSCodeSetup-$(VSCODE_ARCH)-$Version.exe" $Version true $Exe
+      node build/tfs/common/publish.js $Quality "$global:assetPlatform" setup "VSCodeSetup-$(VSCODE_ARCH)-$Version.exe" $Version true $SystemExe
+      node build/tfs/common/publish.js $Quality "$global:assetPlatform-user" setup "VSCodeUserSetup-$(VSCODE_ARCH)-$Version.exe" $Version true $UserExe
 
       # publish hockeyapp symbols
       $hockeyAppId = if ("$(VSCODE_ARCH)" -eq "ia32") { "$(VSCODE_HOCKEYAPP_ID_WIN32)" } else { "$(VSCODE_HOCKEYAPP_ID_WIN64)" }
@@ -271,7 +273,7 @@ phases:
   - script: |
       set -e
       npm run gulp -- "electron-$(VSCODE_ARCH)"
-      DISPLAY=:10 ./scripts/test.sh --build --tfs
+      DISPLAY=:10 ./scripts/test.sh --build --tfs "Unit Tests"
       # yarn smoketest -- --build "$(agent.builddirectory)/VSCode-linux-$(VSCODE_ARCH)"
     name: test
 
@@ -284,7 +286,7 @@ phases:
       AZURE_DOCUMENTDB_MASTERKEY="$(AZURE_DOCUMENTDB_MASTERKEY)" \
       AZURE_STORAGE_ACCESS_KEY_2="$(AZURE_STORAGE_ACCESS_KEY_2)" \
       MOONCAKE_STORAGE_ACCESS_KEY="$(MOONCAKE_STORAGE_ACCESS_KEY)" \
-      ./build/tfs/linux/release2.sh "$(VSCODE_ARCH)" "$(LINUX_REPO_PASSWORD)"
+      ./build/tfs/linux/release.sh "$(VSCODE_ARCH)" "$(LINUX_REPO_PASSWORD)"
 
       # publish hockeyapp symbols
       node build/tfs/common/symbols.js "$(VSCODE_MIXIN_PASSWORD)" "$(VSCODE_HOCKEYAPP_TOKEN)" "$(VSCODE_ARCH)" "$(VSCODE_HOCKEYAPP_ID_LINUX64)"
@@ -327,7 +329,7 @@ phases:
   - script: |
       set -e
       npm run gulp -- "electron-$(VSCODE_ARCH)"
-      DISPLAY=:10 ./scripts/test.sh --build --tfs
+      DISPLAY=:10 ./scripts/test.sh --build --tfs "Unit Tests"
       # yarn smoketest -- --build "$(agent.builddirectory)/VSCode-linux-$(VSCODE_ARCH)"
     name: test
 
@@ -340,7 +342,7 @@ phases:
       AZURE_DOCUMENTDB_MASTERKEY="$(AZURE_DOCUMENTDB_MASTERKEY)" \
       AZURE_STORAGE_ACCESS_KEY_2="$(AZURE_STORAGE_ACCESS_KEY_2)" \
       MOONCAKE_STORAGE_ACCESS_KEY="$(MOONCAKE_STORAGE_ACCESS_KEY)" \
-      ./build/tfs/linux/release2.sh "$(VSCODE_ARCH)" "$(LINUX_REPO_PASSWORD)"
+      ./build/tfs/linux/release.sh "$(VSCODE_ARCH)" "$(LINUX_REPO_PASSWORD)"
 
       # publish hockeyapp symbols
       node build/tfs/common/symbols.js "$(VSCODE_MIXIN_PASSWORD)" "$(VSCODE_HOCKEYAPP_TOKEN)" "$(VSCODE_ARCH)" "$(VSCODE_HOCKEYAPP_ID_LINUX32)"
@@ -376,7 +378,7 @@ phases:
 
   - script: |
       set -e
-      ./scripts/test.sh --build --tfs
+      ./scripts/test.sh --build --tfs "Unit Tests"
       APP_NAME="`ls $(agent.builddirectory)/VSCode-darwin | head -n 1`"
       # yarn smoketest -- --build "$(agent.builddirectory)/VSCode-darwin/$APP_NAME"
     name: test
@@ -407,7 +409,7 @@ phases:
       # enqueue the unsigned build
       AZURE_DOCUMENTDB_MASTERKEY="$(AZURE_DOCUMENTDB_MASTERKEY)" \
       AZURE_STORAGE_ACCESS_KEY_2="$(AZURE_STORAGE_ACCESS_KEY_2)" \
-      node build/tfs/common/enqueue.js "$(VSCODE_QUALITY)"
+      node build/tfs/darwin/enqueue.js "$(VSCODE_QUALITY)"
 
       AZURE_STORAGE_ACCESS_KEY="$(AZURE_STORAGE_ACCESS_KEY)" \
       npm run gulp -- upload-vscode-configuration

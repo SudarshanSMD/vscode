@@ -8,9 +8,8 @@ import URI from 'vs/base/common/uri';
 import { TPromise } from 'vs/base/common/winjs.base';
 import { ITextModelService } from 'vs/editor/common/services/resolverService';
 import * as nls from 'vs/nls';
-import { Verbosity } from 'vs/platform/editor/common/editor';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { EditorInput, SideBySideEditorInput } from 'vs/workbench/common/editor';
+import { EditorInput, SideBySideEditorInput, Verbosity } from 'vs/workbench/common/editor';
 import { ResourceEditorInput } from 'vs/workbench/common/editor/resourceEditorInput';
 import { IHashService } from 'vs/workbench/services/hash/common/hashService';
 import { KeybindingsEditorModel } from 'vs/workbench/services/preferences/common/keybindingsEditorModel';
@@ -22,10 +21,6 @@ export class PreferencesEditorInput extends SideBySideEditorInput {
 
 	getTypeId(): string {
 		return PreferencesEditorInput.ID;
-	}
-
-	public supportsSplitEditor(): boolean {
-		return true;
 	}
 
 	public getTitle(verbosity: Verbosity): string {

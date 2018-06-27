@@ -23,7 +23,7 @@ import { isLinux, isMacintosh, isWindows } from 'vs/base/common/platform';
 import { ICodeWindow, IWindowState, WindowMode } from 'vs/platform/windows/electron-main/windows';
 import { IWorkspaceIdentifier, IWorkspacesMainService } from 'vs/platform/workspaces/common/workspaces';
 import { IBackupMainService } from 'vs/platform/backup/common/backup';
-import { ICommandAction } from 'vs/platform/actions/common/actions';
+import { ISerializableCommandAction } from 'vs/platform/actions/common/actions';
 import { mark, exportEntries } from 'vs/base/common/performance';
 import { resolveMarketplaceHeaders } from 'vs/platform/extensionManagement/node/extensionGalleryService';
 
@@ -166,11 +166,15 @@ export class CodeWindow implements ICodeWindow {
 		}
 
 		let useCustomTitleStyle = false;
-		if (isMacintosh && (!windowConfig || !windowConfig.titleBarStyle || windowConfig.titleBarStyle === 'custom')) {
+		if (isMacintosh) {
+			useCustomTitleStyle = !windowConfig || !windowConfig.titleBarStyle || windowConfig.titleBarStyle === 'custom'; // Default to custom on macOS
+
 			const isDev = !this.environmentService.isBuilt || !!config.extensionDevelopmentPath;
-			if (!isDev) {
-				useCustomTitleStyle = true; // not enabled when developing due to https://github.com/electron/electron/issues/3647
+			if (isDev) {
+				useCustomTitleStyle = false; // not enabled when developing due to https://github.com/electron/electron/issues/3647
 			}
+		} else {
+			useCustomTitleStyle = windowConfig && windowConfig.titleBarStyle === 'custom'; // Must be specified on Windows/Linux
 		}
 
 		if (useNativeTabs) {
@@ -180,6 +184,9 @@ export class CodeWindow implements ICodeWindow {
 		if (useCustomTitleStyle) {
 			options.titleBarStyle = 'hidden';
 			this.hiddenTitleBarStyle = true;
+			if (!isMacintosh) {
+				options.frame = false;
+			}
 		}
 
 		// Create the browser window.
@@ -393,6 +400,23 @@ export class CodeWindow implements ICodeWindow {
 			this._lastFocusTime = Date.now();
 		});
 
+		// Window (Un)Maximize
+		this._win.on('maximize', (e) => {
+			if (this.currentConfig) {
+				this.currentConfig.maximized = true;
+			}
+
+			app.emit('browser-window-maximize', e, this._win);
+		});
+
+		this._win.on('unmaximize', (e) => {
+			if (this.currentConfig) {
+				this.currentConfig.maximized = false;
+			}
+
+			app.emit('browser-window-unmaximize', e, this._win);
+		});
+
 		// Window Fullscreen
 		this._win.on('enter-full-screen', () => {
 			this.sendWhenReady('vscode:enterFullScreen');
@@ -493,7 +517,7 @@ export class CodeWindow implements ICodeWindow {
 		});
 	}
 
-	public load(config: IWindowConfiguration, isReload?: boolean): void {
+	public load(config: IWindowConfiguration, isReload?: boolean, disableExtensions?: boolean): void {
 
 		// If this is the first time the window is loaded, we associate the paths
 		// directly with the window because we assume the loading will just work
@@ -508,6 +532,13 @@ export class CodeWindow implements ICodeWindow {
 		else {
 			this.pendingLoadConfig = config;
 			this._readyState = ReadyState.NAVIGATING;
+		}
+
+		// Add disable-extensions to the config, but do not preserve it on currentConfig or
+		// pendingLoadConfig so that it is applied only on this load
+		const configuration = objects.assign({}, config);
+		if (disableExtensions !== undefined) {
+			configuration['disable-extensions'] = disableExtensions;
 		}
 
 		// Clear Document Edited if needed
@@ -528,7 +559,7 @@ export class CodeWindow implements ICodeWindow {
 
 		// Load URL
 		mark('main:loadWindow');
-		this._win.loadURL(this.getUrl(config));
+		this._win.loadURL(this.getUrl(configuration));
 
 		// Make window visible if it did not open in N seconds because this indicates an error
 		// Only do this when running out of sources and not when running tests
@@ -566,14 +597,11 @@ export class CodeWindow implements ICodeWindow {
 			configuration['extensions-dir'] = cli['extensions-dir'];
 		}
 
-		if (cli) {
-			configuration['disable-extensions'] = cli['disable-extensions'];
-		}
-
 		configuration.isInitialStartup = false; // since this is a reload
 
 		// Load config
-		this.load(configuration, true);
+		const disableExtensions = cli ? cli['disable-extensions'] : undefined;
+		this.load(configuration, true, disableExtensions);
 	}
 
 	private getUrl(windowConfiguration: IWindowConfiguration): string {
@@ -603,6 +631,10 @@ export class CodeWindow implements ICodeWindow {
 		// Theme
 		windowConfiguration.baseTheme = this.getBaseTheme();
 		windowConfiguration.backgroundColor = this.getBackgroundColor();
+
+		// Title style related
+		windowConfiguration.maximized = this._win.isMaximized();
+		windowConfiguration.frameless = this.hasHiddenTitleBarStyle() && !isMacintosh;
 
 		// Perf Counters
 		windowConfiguration.perfEntries = exportEntries();
@@ -929,7 +961,7 @@ export class CodeWindow implements ICodeWindow {
 		}
 	}
 
-	public updateTouchBar(groups: ICommandAction[][]): void {
+	public updateTouchBar(groups: ISerializableCommandAction[][]): void {
 		if (!isMacintosh) {
 			return; // only supported on macOS
 		}
@@ -963,7 +995,7 @@ export class CodeWindow implements ICodeWindow {
 		this._win.setTouchBar(new TouchBar({ items: this.touchBarGroups }));
 	}
 
-	private createTouchBarGroup(items: ICommandAction[] = []): Electron.TouchBarSegmentedControl {
+	private createTouchBarGroup(items: ISerializableCommandAction[] = []): Electron.TouchBarSegmentedControl {
 
 		// Group Segments
 		const segments = this.createTouchBarGroupSegments(items);
@@ -981,11 +1013,11 @@ export class CodeWindow implements ICodeWindow {
 		return control;
 	}
 
-	private createTouchBarGroupSegments(items: ICommandAction[] = []): ITouchBarSegment[] {
+	private createTouchBarGroupSegments(items: ISerializableCommandAction[] = []): ITouchBarSegment[] {
 		const segments: ITouchBarSegment[] = items.map(item => {
 			let icon: Electron.NativeImage;
-			if (item.iconPath) {
-				icon = nativeImage.createFromPath(item.iconPath.dark);
+			if (item.iconLocation && item.iconLocation.dark.scheme === 'file') {
+				icon = nativeImage.createFromPath(URI.revive(item.iconLocation.dark).fsPath);
 				if (icon.isEmpty()) {
 					icon = void 0;
 				}

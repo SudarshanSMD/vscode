@@ -33,11 +33,12 @@ import { TestContextService, TestWindowService } from 'vs/workbench/test/workben
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import { ILogService, NullLogService } from 'vs/platform/log/common/log';
 import { IWindowService } from 'vs/platform/windows/common/windows';
-import { IProgressService2 } from 'vs/platform/progress/common/progress';
+import { IProgressService2 } from 'vs/workbench/services/progress/common/progress';
 import { ProgressService2 } from 'vs/workbench/services/progress/browser/progressService2';
 import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
 import { INotificationService } from 'vs/platform/notification/common/notification';
 import { URLService } from 'vs/platform/url/common/urlService';
+import URI from 'vs/base/common/uri';
 
 suite('ExtensionsWorkbenchService Test', () => {
 
@@ -75,8 +76,7 @@ suite('ExtensionsWorkbenchService Test', () => {
 
 		instantiationService.stub(IExtensionEnablementService, new TestExtensionEnablementService(instantiationService));
 
-		instantiationService.stub(IExtensionTipsService, ExtensionTipsService);
-		instantiationService.stub(IExtensionTipsService, 'getKeymapRecommendations', () => []);
+		instantiationService.set(IExtensionTipsService, instantiationService.createInstance(ExtensionTipsService));
 
 		instantiationService.stub(INotificationService, { prompt: () => null });
 		instantiationService.stub(IDialogService, { show: () => TPromise.as(0) });
@@ -165,7 +165,7 @@ suite('ExtensionsWorkbenchService Test', () => {
 				type: LocalExtensionType.User,
 				readmeUrl: 'localReadmeUrl1',
 				changelogUrl: 'localChangelogUrl1',
-				path: 'localPath1'
+				location: URI.file('localPath1')
 			});
 		const expected2 = aLocalExtension('local2', {
 			publisher: 'localPublisher2',
@@ -233,7 +233,7 @@ suite('ExtensionsWorkbenchService Test', () => {
 				type: LocalExtensionType.User,
 				readmeUrl: 'localReadmeUrl1',
 				changelogUrl: 'localChangelogUrl1',
-				path: 'localPath1'
+				location: URI.file('localPath1')
 			});
 		const local2 = aLocalExtension('local2', {
 			publisher: 'localPublisher2',
