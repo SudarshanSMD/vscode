@@ -3,21 +3,33 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import URI from 'vs/base/common/uri';
-import { TPromise } from 'vs/base/common/winjs.base';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { IEditorOptions } from 'vs/platform/editor/common/editor';
-import { IEditor } from 'vs/workbench/common/editor';
-import { ITextModel } from 'vs/editor/common/model';
-import { IRange } from 'vs/editor/common/core/range';
-import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
-import { join } from 'vs/base/common/paths';
-import { ConfigurationTarget } from 'vs/platform/configuration/common/configuration';
-import { Event } from 'vs/base/common/event';
 import { IStringDictionary } from 'vs/base/common/collections';
-import { ILocalExtension } from 'vs/platform/extensionManagement/common/extensionManagement';
+import { Event } from 'vs/base/common/event';
+import { URI } from 'vs/base/common/uri';
+import { IRange } from 'vs/editor/common/core/range';
+import { ITextModel } from 'vs/editor/common/model';
 import { localize } from 'vs/nls';
-import { IEditorGroup } from 'vs/workbench/services/group/common/editorGroupsService';
+import { ConfigurationTarget } from 'vs/platform/configuration/common/configuration';
+import { ConfigurationScope } from 'vs/platform/configuration/common/configurationRegistry';
+import { IEditorOptions } from 'vs/platform/editor/common/editor';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { EditorOptions, IEditor } from 'vs/workbench/common/editor';
+import { IEditorGroup } from 'vs/workbench/services/editor/common/editorGroupsService';
+import { Settings2EditorModel } from 'vs/workbench/services/preferences/common/preferencesModels';
+
+export enum SettingValueType {
+	Null = 'null',
+	Enum = 'enum',
+	String = 'string',
+	Integer = 'integer',
+	Number = 'number',
+	Boolean = 'boolean',
+	Exclude = 'exclude',
+	Complex = 'complex',
+	NullableInteger = 'nullable-integer',
+	NullableNumber = 'nullable-number'
+}
 
 export interface ISettingsGroup {
 	id: string;
@@ -41,13 +53,19 @@ export interface ISetting {
 	value: any;
 	valueRange: IRange;
 	description: string[];
+	descriptionIsMarkdown: boolean;
 	descriptionRanges: IRange[];
 	overrides?: ISetting[];
 	overrideOf?: ISetting;
+	deprecationMessage?: string;
 
-	// TODO@roblou maybe need new type and new EditorModel for GUI editor instead of ISetting which is used for text settings editor
+	scope?: ConfigurationScope;
 	type?: string | string[];
 	enum?: string[];
+	enumDescriptions?: string[];
+	enumDescriptionsAreMarkdown?: boolean;
+	tags?: string[];
+	validator?: (value: any) => string;
 }
 
 export interface IExtensionSetting extends ISetting {
@@ -57,6 +75,7 @@ export interface IExtensionSetting extends ISetting {
 
 export interface ISearchResult {
 	filterMatches: ISettingMatch[];
+	exactMatch?: boolean;
 	metadata?: IFilterMetadata;
 }
 
@@ -73,6 +92,7 @@ export interface IFilterResult {
 	allGroups: ISettingsGroup[];
 	matches: IRange[];
 	metadata?: IStringDictionary<IFilterMetadata>;
+	exactMatch?: boolean;
 }
 
 export interface ISettingMatch {
@@ -102,7 +122,6 @@ export interface IFilterMetadata {
 	timestamp: number;
 	duration: number;
 	scoredResults: IScoredResults;
-	extensions?: ILocalExtension[];
 
 	/** The number of requests made, since requests are split by number of filters */
 	requestCount?: number;
@@ -112,8 +131,8 @@ export interface IFilterMetadata {
 }
 
 export interface IPreferencesEditorModel<T> {
-	uri: URI;
-	getPreference(key: string): T;
+	uri?: URI;
+	getPreference(key: string): T | null;
 	dispose(): void;
 }
 
@@ -125,7 +144,46 @@ export interface ISettingsEditorModel extends IPreferencesEditorModel<ISetting> 
 	settingsGroups: ISettingsGroup[];
 	filterSettings(filter: string, groupFilter: IGroupFilter, settingMatcher: ISettingMatcher): ISettingMatch[];
 	findValueMatches(filter: string, setting: ISetting): IRange[];
-	updateResultGroup(id: string, resultGroup: ISearchResultGroup): IFilterResult;
+	updateResultGroup(id: string, resultGroup: ISearchResultGroup): IFilterResult | null;
+}
+
+export interface ISettingsEditorOptions extends IEditorOptions {
+	target?: ConfigurationTarget;
+	folderUri?: URI;
+	query?: string;
+}
+
+/**
+ * TODO Why do we need this class?
+ */
+export class SettingsEditorOptions extends EditorOptions implements ISettingsEditorOptions {
+
+	target?: ConfigurationTarget;
+	folderUri?: URI;
+	query?: string;
+
+	static create(settings: ISettingsEditorOptions): SettingsEditorOptions | null {
+		if (!settings) {
+			return null;
+		}
+
+		const options = new SettingsEditorOptions();
+
+		options.target = settings.target;
+		options.folderUri = settings.folderUri;
+		options.query = settings.query;
+
+		// IEditorOptions
+		options.preserveFocus = settings.preserveFocus;
+		options.forceReload = settings.forceReload;
+		options.revealIfVisible = settings.revealIfVisible;
+		options.revealIfOpened = settings.revealIfOpened;
+		options.pinned = settings.pinned;
+		options.index = settings.index;
+		options.inactive = settings.inactive;
+
+		return options;
+	}
 }
 
 export interface IKeybindingsEditorModel<T> extends IPreferencesEditorModel<T> {
@@ -140,17 +198,18 @@ export interface IPreferencesService {
 	workspaceSettingsResource: URI;
 	getFolderSettingsResource(resource: URI): URI;
 
-	resolveModel(uri: URI): TPromise<ITextModel>;
-	createPreferencesEditorModel<T>(uri: URI): TPromise<IPreferencesEditorModel<T>>;
+	resolveModel(uri: URI): Promise<ITextModel>;
+	createPreferencesEditorModel<T>(uri: URI): Promise<IPreferencesEditorModel<T>>;
+	createSettings2EditorModel(): Settings2EditorModel; // TODO
 
-	openRawDefaultSettings(): TPromise<IEditor>;
-	openSettings(): TPromise<IEditor>;
-	openSettings2(): TPromise<IEditor>;
-	openGlobalSettings(options?: IEditorOptions, group?: IEditorGroup): TPromise<IEditor>;
-	openWorkspaceSettings(options?: IEditorOptions, group?: IEditorGroup): TPromise<IEditor>;
-	openFolderSettings(folder: URI, options?: IEditorOptions, group?: IEditorGroup): TPromise<IEditor>;
-	switchSettings(target: ConfigurationTarget, resource: URI): TPromise<void>;
-	openGlobalKeybindingSettings(textual: boolean): TPromise<void>;
+	openRawDefaultSettings(): Promise<IEditor>;
+	openSettings(jsonEditor?: boolean): Promise<IEditor>;
+	openGlobalSettings(jsonEditor?: boolean, options?: ISettingsEditorOptions, group?: IEditorGroup): Promise<IEditor>;
+	openWorkspaceSettings(jsonEditor?: boolean, options?: ISettingsEditorOptions, group?: IEditorGroup): Promise<IEditor>;
+	openFolderSettings(folder: URI, jsonEditor?: boolean, options?: ISettingsEditorOptions, group?: IEditorGroup): Promise<IEditor>;
+	switchSettings(target: ConfigurationTarget, resource: URI, jsonEditor?: boolean): Promise<void>;
+	openGlobalKeybindingSettings(textual: boolean): Promise<void>;
+	openDefaultKeybindingsFile(): Promise<IEditor>;
 
 	configureSettingsForLanguage(language: string): void;
 }
@@ -168,5 +227,6 @@ export function getSettingsTargetName(target: ConfigurationTarget, resource: URI
 	return '';
 }
 
-export const FOLDER_SETTINGS_PATH = join('.vscode', 'settings.json');
+export const FOLDER_SETTINGS_PATH = '.vscode/settings.json';
 export const DEFAULT_SETTINGS_EDITOR_SETTING = 'workbench.settings.openDefaultSettings';
+export const USE_SPLIT_JSON_SETTING = 'workbench.settings.useSplitJSON';

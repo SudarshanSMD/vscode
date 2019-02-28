@@ -24,6 +24,14 @@ export namespace Range {
 		endLine: range.end.line + 1,
 		endOffset: range.end.character + 1
 	});
+
+	export const toFormattingRequestArgs = (file: string, range: vscode.Range): Proto.FormatRequestArgs => ({
+		file,
+		line: range.start.line + 1,
+		offset: range.start.character + 1,
+		endLine: range.end.line + 1,
+		endOffset: range.end.character + 1
+	});
 }
 
 export namespace Position {
@@ -33,7 +41,7 @@ export namespace Position {
 	export const toFileLocationRequestArgs = (file: string, position: vscode.Position): Proto.FileLocationRequestArgs => ({
 		file,
 		line: position.line + 1,
-		offset: position.character + 1
+		offset: position.character + 1,
 	});
 }
 

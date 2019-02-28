@@ -3,11 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import * as nls from 'vs/nls';
-import { TPromise } from 'vs/base/common/winjs.base';
-import URI from 'vs/base/common/uri';
+import { URI } from 'vs/base/common/uri';
 import * as json from 'vs/base/common/json';
 import * as encoding from 'vs/base/node/encoding';
 import * as strings from 'vs/base/common/strings';
@@ -27,12 +24,12 @@ import { FOLDER_SETTINGS_PATH, WORKSPACE_STANDALONE_CONFIGURATIONS, TASKS_CONFIG
 import { IFileService } from 'vs/platform/files/common/files';
 import { ITextModelService, ITextEditorModel } from 'vs/editor/common/services/resolverService';
 import { OVERRIDE_PROPERTY_PATTERN, IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from 'vs/platform/configuration/common/configurationRegistry';
-import { ICommandService } from 'vs/platform/commands/common/commands';
 import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
 import { ITextModel } from 'vs/editor/common/model';
 import { INotificationService, Severity } from 'vs/platform/notification/common/notification';
+import { IPreferencesService } from 'vs/workbench/services/preferences/common/preferences';
 
-export enum ConfigurationEditingErrorCode {
+export const enum ConfigurationEditingErrorCode {
 
 	/**
 	 * Error when trying to write a configuration key that is not registered.
@@ -125,32 +122,32 @@ export class ConfigurationEditingService {
 	private queue: Queue<void>;
 
 	constructor(
-		@IConfigurationService private configurationService: IConfigurationService,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService,
-		@IEnvironmentService private environmentService: IEnvironmentService,
-		@IFileService private fileService: IFileService,
-		@ITextModelService private textModelResolverService: ITextModelService,
-		@ITextFileService private textFileService: ITextFileService,
-		@INotificationService private notificationService: INotificationService,
-		@ICommandService private commandService: ICommandService,
-		@IEditorService private editorService: IEditorService
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IEnvironmentService private readonly environmentService: IEnvironmentService,
+		@IFileService private readonly fileService: IFileService,
+		@ITextModelService private readonly textModelResolverService: ITextModelService,
+		@ITextFileService private readonly textFileService: ITextFileService,
+		@INotificationService private readonly notificationService: INotificationService,
+		@IPreferencesService private readonly preferencesService: IPreferencesService,
+		@IEditorService private readonly editorService: IEditorService
 	) {
 		this.queue = new Queue<void>();
 	}
 
-	writeConfiguration(target: ConfigurationTarget, value: IConfigurationValue, options: IConfigurationEditingOptions = {}): TPromise<void> {
+	writeConfiguration(target: ConfigurationTarget, value: IConfigurationValue, options: IConfigurationEditingOptions = {}): Promise<void> {
 		const operation = this.getConfigurationEditOperation(target, value, options.scopes || {});
-		return this.queue.queue(() => this.doWriteConfiguration(operation, options) // queue up writes to prevent race conditions
+		return Promise.resolve(this.queue.queue(() => this.doWriteConfiguration(operation, options) // queue up writes to prevent race conditions
 			.then(() => null,
 				error => {
 					if (!options.donotNotifyError) {
 						this.onError(error, operation, options.scopes);
 					}
-					return TPromise.wrapError(error);
-				}));
+					return Promise.reject(error);
+				})));
 	}
 
-	private doWriteConfiguration(operation: IConfigurationEditOperation, options: ConfigurationEditingOptions): TPromise<void> {
+	private doWriteConfiguration(operation: IConfigurationEditOperation, options: ConfigurationEditingOptions): Promise<void> {
 		const checkDirtyConfiguration = !(options.force || options.donotSave);
 		const saveConfiguration = options.force || !options.donotSave;
 		return this.resolveAndValidate(operation.target, operation, checkDirtyConfiguration, options.scopes || {})
@@ -158,12 +155,11 @@ export class ConfigurationEditingService {
 				.then(() => reference.dispose()));
 	}
 
-	private writeToBuffer(model: ITextModel, operation: IConfigurationEditOperation, save: boolean): TPromise<any> {
+	private async writeToBuffer(model: ITextModel, operation: IConfigurationEditOperation, save: boolean): Promise<any> {
 		const edit = this.getEdits(model, operation)[0];
 		if (edit && this.applyEditsToBuffer(edit, model) && save) {
 			return this.textFileService.save(operation.resource, { skipSaveParticipants: true /* programmatic change */ });
 		}
-		return TPromise.as(null);
 	}
 
 	private applyEditsToBuffer(edit: Edit, model: ITextModel): boolean {
@@ -248,16 +244,16 @@ export class ConfigurationEditingService {
 	private openSettings(operation: IConfigurationEditOperation): void {
 		switch (operation.target) {
 			case ConfigurationTarget.USER:
-				this.commandService.executeCommand('workbench.action.openGlobalSettings');
+				this.preferencesService.openGlobalSettings(true);
 				break;
 			case ConfigurationTarget.WORKSPACE:
-				this.commandService.executeCommand('workbench.action.openWorkspaceSettings');
+				this.preferencesService.openWorkspaceSettings(true);
 				break;
 			case ConfigurationTarget.WORKSPACE_FOLDER:
 				if (operation.resource) {
 					const workspaceFolder = this.contextService.getWorkspaceFolder(operation.resource);
 					if (workspaceFolder) {
-						this.commandService.executeCommand('_workbench.action.openFolderSettings', workspaceFolder);
+						this.preferencesService.openFolderSettings(workspaceFolder.uri, true);
 					}
 				}
 				break;
@@ -268,10 +264,10 @@ export class ConfigurationEditingService {
 		this.editorService.openEditor({ resource });
 	}
 
-	private wrapError<T = never>(code: ConfigurationEditingErrorCode, target: ConfigurationTarget, operation: IConfigurationEditOperation): TPromise<T> {
+	private reject<T = never>(code: ConfigurationEditingErrorCode, target: ConfigurationTarget, operation: IConfigurationEditOperation): Promise<T> {
 		const message = this.toErrorMessage(code, target, operation);
 
-		return TPromise.wrapError<T>(new ConfigurationEditingError(message, code));
+		return Promise.reject(new ConfigurationEditingError(message, code));
 	}
 
 	private toErrorMessage(error: ConfigurationEditingErrorCode, target: ConfigurationTarget, operation: IConfigurationEditOperation): string {
@@ -356,12 +352,12 @@ export class ConfigurationEditingService {
 		return setProperty(model.getValue(), jsonPath, value, { tabSize, insertSpaces, eol });
 	}
 
-	private resolveModelReference(resource: URI): TPromise<IReference<ITextEditorModel>> {
-		return this.fileService.existsFile(resource)
-			.then(exists => {
-				const result = exists ? TPromise.as(null) : this.fileService.updateContent(resource, '{}', { encoding: encoding.UTF8 });
-				return result.then(() => this.textModelResolverService.createModelReference(resource));
-			});
+	private async resolveModelReference(resource: URI): Promise<IReference<ITextEditorModel>> {
+		const exists = await this.fileService.existsFile(resource);
+		if (!exists) {
+			await this.fileService.updateContent(resource, '{}', { encoding: encoding.UTF8 });
+		}
+		return this.textModelResolverService.createModelReference(resource);
 	}
 
 	private hasParseErrors(model: ITextModel, operation: IConfigurationEditOperation): boolean {
@@ -375,51 +371,51 @@ export class ConfigurationEditingService {
 		return parseErrors.length > 0;
 	}
 
-	private resolveAndValidate(target: ConfigurationTarget, operation: IConfigurationEditOperation, checkDirty: boolean, overrides: IConfigurationOverrides): TPromise<IReference<ITextEditorModel>> {
+	private resolveAndValidate(target: ConfigurationTarget, operation: IConfigurationEditOperation, checkDirty: boolean, overrides: IConfigurationOverrides): Promise<IReference<ITextEditorModel>> {
 
 		// Any key must be a known setting from the registry (unless this is a standalone config)
 		if (!operation.workspaceStandAloneConfigurationKey) {
 			const validKeys = this.configurationService.keys().default;
 			if (validKeys.indexOf(operation.key) < 0 && !OVERRIDE_PROPERTY_PATTERN.test(operation.key)) {
-				return this.wrapError(ConfigurationEditingErrorCode.ERROR_UNKNOWN_KEY, target, operation);
+				return this.reject(ConfigurationEditingErrorCode.ERROR_UNKNOWN_KEY, target, operation);
 			}
 		}
 
 		if (operation.workspaceStandAloneConfigurationKey) {
 			// Global tasks and launches are not supported
 			if (target === ConfigurationTarget.USER) {
-				return this.wrapError(ConfigurationEditingErrorCode.ERROR_INVALID_USER_TARGET, target, operation);
+				return this.reject(ConfigurationEditingErrorCode.ERROR_INVALID_USER_TARGET, target, operation);
 			}
 
 			// Workspace tasks are not supported
 			if (operation.workspaceStandAloneConfigurationKey === TASKS_CONFIGURATION_KEY && this.contextService.getWorkbenchState() === WorkbenchState.WORKSPACE && operation.target === ConfigurationTarget.WORKSPACE) {
-				return this.wrapError(ConfigurationEditingErrorCode.ERROR_INVALID_WORKSPACE_TARGET, target, operation);
+				return this.reject(ConfigurationEditingErrorCode.ERROR_INVALID_WORKSPACE_TARGET, target, operation);
 			}
 		}
 
 		// Target cannot be workspace or folder if no workspace opened
 		if ((target === ConfigurationTarget.WORKSPACE || target === ConfigurationTarget.WORKSPACE_FOLDER) && this.contextService.getWorkbenchState() === WorkbenchState.EMPTY) {
-			return this.wrapError(ConfigurationEditingErrorCode.ERROR_NO_WORKSPACE_OPENED, target, operation);
+			return this.reject(ConfigurationEditingErrorCode.ERROR_NO_WORKSPACE_OPENED, target, operation);
 		}
 
 		if (target === ConfigurationTarget.WORKSPACE) {
 			if (!operation.workspaceStandAloneConfigurationKey) {
 				const configurationProperties = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationProperties();
 				if (configurationProperties[operation.key].scope === ConfigurationScope.APPLICATION) {
-					return this.wrapError(ConfigurationEditingErrorCode.ERROR_INVALID_WORKSPACE_CONFIGURATION_APPLICATION, target, operation);
+					return this.reject(ConfigurationEditingErrorCode.ERROR_INVALID_WORKSPACE_CONFIGURATION_APPLICATION, target, operation);
 				}
 			}
 		}
 
 		if (target === ConfigurationTarget.WORKSPACE_FOLDER) {
 			if (!operation.resource) {
-				return this.wrapError(ConfigurationEditingErrorCode.ERROR_INVALID_FOLDER_TARGET, target, operation);
+				return this.reject(ConfigurationEditingErrorCode.ERROR_INVALID_FOLDER_TARGET, target, operation);
 			}
 
 			if (!operation.workspaceStandAloneConfigurationKey) {
 				const configurationProperties = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationProperties();
 				if (configurationProperties[operation.key].scope !== ConfigurationScope.RESOURCE) {
-					return this.wrapError(ConfigurationEditingErrorCode.ERROR_INVALID_FOLDER_CONFIGURATION, target, operation);
+					return this.reject(ConfigurationEditingErrorCode.ERROR_INVALID_FOLDER_CONFIGURATION, target, operation);
 				}
 			}
 		}
@@ -429,12 +425,12 @@ export class ConfigurationEditingService {
 				const model = reference.object.textEditorModel;
 
 				if (this.hasParseErrors(model, operation)) {
-					return this.wrapError<typeof reference>(ConfigurationEditingErrorCode.ERROR_INVALID_CONFIGURATION, target, operation);
+					return this.reject<typeof reference>(ConfigurationEditingErrorCode.ERROR_INVALID_CONFIGURATION, target, operation);
 				}
 
 				// Target cannot be dirty if not writing into buffer
 				if (checkDirty && this.textFileService.isDirty(operation.resource)) {
-					return this.wrapError<typeof reference>(ConfigurationEditingErrorCode.ERROR_CONFIGURATION_FILE_DIRTY, target, operation);
+					return this.reject<typeof reference>(ConfigurationEditingErrorCode.ERROR_CONFIGURATION_FILE_DIRTY, target, operation);
 				}
 				return reference;
 			});
@@ -445,8 +441,7 @@ export class ConfigurationEditingService {
 		// Check for standalone workspace configurations
 		if (config.key) {
 			const standaloneConfigurationKeys = Object.keys(WORKSPACE_STANDALONE_CONFIGURATIONS);
-			for (let i = 0; i < standaloneConfigurationKeys.length; i++) {
-				const key = standaloneConfigurationKeys[i];
+			for (const key of standaloneConfigurationKeys) {
 				const resource = this.getConfigurationFileResource(target, WORKSPACE_STANDALONE_CONFIGURATIONS[key], overrides.resource);
 
 				// Check for prefix
@@ -479,7 +474,7 @@ export class ConfigurationEditingService {
 
 	private isWorkspaceConfigurationResource(resource: URI): boolean {
 		const workspace = this.contextService.getWorkspace();
-		return workspace.configuration && resource && workspace.configuration.fsPath === resource.fsPath;
+		return !!(workspace.configuration && resource && workspace.configuration.fsPath === resource.fsPath);
 	}
 
 	private getConfigurationFileResource(target: ConfigurationTarget, relativePath: string, resource: URI): URI {

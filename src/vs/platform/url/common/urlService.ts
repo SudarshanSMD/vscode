@@ -3,16 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import { IURLService, IURLHandler } from 'vs/platform/url/common/url';
-import URI from 'vs/base/common/uri';
+import { URI } from 'vs/base/common/uri';
 import { IDisposable, toDisposable } from 'vs/base/common/lifecycle';
-import { TPromise } from 'vs/base/common/winjs.base';
-
-declare module Array {
-	function from<T>(set: Set<T>): T[];
-}
+import { first } from 'vs/base/common/async';
+import { values } from 'vs/base/common/map';
 
 export class URLService implements IURLService {
 
@@ -20,16 +15,9 @@ export class URLService implements IURLService {
 
 	private handlers = new Set<IURLHandler>();
 
-	async open(uri: URI): TPromise<boolean> {
-		const handlers = Array.from(this.handlers);
-
-		for (const handler of handlers) {
-			if (await handler.handleURL(uri)) {
-				return true;
-			}
-		}
-
-		return false;
+	open(uri: URI): Promise<boolean> {
+		const handlers = values(this.handlers);
+		return first(handlers.map(h => () => h.handleURL(uri)), undefined, false).then(val => val || false);
 	}
 
 	registerHandler(handler: IURLHandler): IDisposable {
@@ -44,11 +32,11 @@ export class RelayURLService extends URLService implements IURLHandler {
 		super();
 	}
 
-	async open(uri: URI): TPromise<boolean> {
+	open(uri: URI): Promise<boolean> {
 		return this.urlService.open(uri);
 	}
 
-	handleURL(uri: URI): TPromise<boolean> {
+	handleURL(uri: URI): Promise<boolean> {
 		return super.open(uri);
 	}
 }

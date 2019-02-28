@@ -3,12 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
-import { TPromise } from 'vs/base/common/winjs.base';
-import { GroupIdentifier, IWorkbenchEditorConfiguration, IWorkbenchEditorPartConfiguration, EditorOptions, TextEditorOptions, IEditorInput, IEditorIdentifier, IEditorCloseEvent } from 'vs/workbench/common/editor';
+import { GroupIdentifier, IWorkbenchEditorConfiguration, IWorkbenchEditorPartConfiguration, EditorOptions, TextEditorOptions, IEditorInput, IEditorIdentifier, IEditorCloseEvent, IEditor } from 'vs/workbench/common/editor';
 import { EditorGroup } from 'vs/workbench/common/editor/editorGroup';
-import { IEditorGroup, GroupDirection, IAddGroupOptions, IMergeGroupOptions, GroupsOrder, IEditorGroupsService } from 'vs/workbench/services/group/common/editorGroupsService';
+import { IEditorGroup, GroupDirection, IAddGroupOptions, IMergeGroupOptions, GroupsOrder, IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { Dimension } from 'vs/base/browser/dom';
 import { Event } from 'vs/base/common/event';
@@ -30,8 +27,10 @@ export interface IEditorPartOptions extends IWorkbenchEditorPartConfiguration {
 
 export const DEFAULT_EDITOR_PART_OPTIONS: IEditorPartOptions = {
 	showTabs: true,
+	highlightModifiedTabs: false,
 	tabCloseButton: 'right',
 	tabSizing: 'fit',
+	focusRecentEditorAfterClose: true,
 	showIcons: true,
 	enablePreview: true,
 	openPositioning: 'right',
@@ -76,9 +75,9 @@ export interface IEditorOpeningEvent extends IEditorIdentifier {
 	 * that will be executed instead. By returning another editor promise
 	 * it is possible to override the opening with another editor. It is ok
 	 * to return a promise that resolves to NULL to prevent the opening
-	 * altogether.
+	 * alltogether.
 	 */
-	prevent(callback: () => Thenable<any>): void;
+	prevent(callback: () => Promise<IEditor>): void;
 }
 
 export interface IEditorGroupsAccessor {
@@ -104,7 +103,7 @@ export interface IEditorGroupsAccessor {
 
 export interface IEditorGroupView extends IDisposable, ISerializableView, IEditorGroup {
 	readonly group: EditorGroup;
-	readonly whenRestored: TPromise<void>;
+	readonly whenRestored: Promise<void>;
 	readonly disposed: boolean;
 
 	readonly onDidFocus: Event<void>;
@@ -117,12 +116,11 @@ export interface IEditorGroupView extends IDisposable, ISerializableView, IEdito
 	isEmpty(): boolean;
 	setActive(isActive: boolean): void;
 	setLabel(label: string): void;
-
-	shutdown(): void;
+	relayout(): void;
 }
 
 export function getActiveTextEditorOptions(group: IEditorGroup, expectedActiveEditor?: IEditorInput, presetOptions?: EditorOptions): EditorOptions {
-	const activeGroupCodeEditor = group.activeControl ? getCodeEditor(group.activeControl.getControl()) : void 0;
+	const activeGroupCodeEditor = group.activeControl ? getCodeEditor(group.activeControl.getControl()) : undefined;
 	if (activeGroupCodeEditor) {
 		if (!expectedActiveEditor || expectedActiveEditor.matches(group.activeEditor)) {
 			return TextEditorOptions.fromEditor(activeGroupCodeEditor, presetOptions);
@@ -158,5 +156,5 @@ export interface EditorGroupsServiceImpl extends IEditorGroupsService {
 	/**
 	 * A promise that resolves when groups have been restored.
 	 */
-	readonly whenRestored: TPromise<void>;
+	readonly whenRestored: Promise<void>;
 }

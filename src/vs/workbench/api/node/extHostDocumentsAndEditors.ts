@@ -2,17 +2,16 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
-import { Event, Emitter } from 'vs/base/common/event';
-import { dispose } from 'vs/base/common/lifecycle';
-import { MainContext, ExtHostDocumentsAndEditorsShape, IDocumentsAndEditorsDelta, IMainContext } from './extHost.protocol';
-import { ExtHostDocumentData } from './extHostDocumentData';
-import { ExtHostTextEditor } from './extHostTextEditor';
 import * as assert from 'assert';
-import * as typeConverters from './extHostTypeConverters';
-import URI from 'vs/base/common/uri';
-import { Disposable } from './extHostTypes';
+import { Emitter, Event } from 'vs/base/common/event';
+import { dispose } from 'vs/base/common/lifecycle';
+import { URI } from 'vs/base/common/uri';
+import { ExtHostDocumentsAndEditorsShape, IDocumentsAndEditorsDelta, IMainContext, MainContext } from 'vs/workbench/api/node/extHost.protocol';
+import { ExtHostDocumentData } from 'vs/workbench/api/node/extHostDocumentData';
+import { ExtHostTextEditor } from 'vs/workbench/api/node/extHostTextEditor';
+import * as typeConverters from 'vs/workbench/api/node/extHostTypeConverters';
+import { Disposable } from 'vs/workbench/api/node/extHostTypes';
 
 export class ExtHostDocumentsAndEditors implements ExtHostDocumentsAndEditorsShape {
 
@@ -53,7 +52,9 @@ export class ExtHostDocumentsAndEditors implements ExtHostDocumentsAndEditorsSha
 				const id = uri.toString();
 				const data = this._documents.get(id);
 				this._documents.delete(id);
-				removedDocuments.push(data);
+				if (data) {
+					removedDocuments.push(data);
+				}
 			}
 		}
 
@@ -80,7 +81,9 @@ export class ExtHostDocumentsAndEditors implements ExtHostDocumentsAndEditorsSha
 			for (const id of delta.removedEditors) {
 				const editor = this._editors.get(id);
 				this._editors.delete(id);
-				removedEditors.push(editor);
+				if (editor) {
+					removedEditors.push(editor);
+				}
 			}
 		}
 
@@ -98,7 +101,7 @@ export class ExtHostDocumentsAndEditors implements ExtHostDocumentsAndEditorsSha
 					data.selections.map(typeConverters.Selection.to),
 					data.options,
 					data.visibleRanges.map(typeConverters.Range.to),
-					typeConverters.ViewColumn.to(data.editorPosition)
+					typeof data.editorPosition === 'number' ? typeConverters.ViewColumn.to(data.editorPosition) : undefined
 				);
 				this._editors.set(data.id, editor);
 			}

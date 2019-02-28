@@ -3,15 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import * as sinon from 'sinon';
 import * as assert from 'assert';
 import * as os from 'os';
-import * as path from 'path';
+import * as path from 'vs/base/common/path';
 import * as fs from 'fs';
 import * as json from 'vs/base/common/json';
-import { TPromise } from 'vs/base/common/winjs.base';
 import { Registry } from 'vs/platform/registry/common/platform';
 import { ParsedArgs, IEnvironmentService } from 'vs/platform/environment/common/environment';
 import { parseArgs } from 'vs/platform/environment/node/argv';
@@ -23,7 +20,7 @@ import { TestNotificationService } from 'vs/platform/notification/test/common/te
 import * as uuid from 'vs/base/common/uuid';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from 'vs/platform/configuration/common/configurationRegistry';
 import { WorkspaceService } from 'vs/workbench/services/configuration/node/configurationService';
-import { FileService } from 'vs/workbench/services/files/electron-browser/fileService';
+import { FileService } from 'vs/workbench/services/files/node/fileService';
 import { ConfigurationEditingService, ConfigurationEditingError, ConfigurationEditingErrorCode } from 'vs/workbench/services/configuration/node/configurationEditingService';
 import { IFileService } from 'vs/platform/files/common/files';
 import { WORKSPACE_STANDALONE_CONFIGURATIONS } from 'vs/workbench/services/configuration/common/configuration';
@@ -33,11 +30,12 @@ import { ITextFileService } from 'vs/workbench/services/textfile/common/textfile
 import { ITextModelService } from 'vs/editor/common/services/resolverService';
 import { TextModelResolverService } from 'vs/workbench/services/textmodelResolver/common/textModelResolverService';
 import { TestConfigurationService } from 'vs/platform/configuration/test/common/testConfigurationService';
-import { IWindowConfiguration } from 'vs/platform/windows/common/windows';
 import { mkdirp } from 'vs/base/node/pfs';
 import { INotificationService } from 'vs/platform/notification/common/notification';
 import { ICommandService } from 'vs/platform/commands/common/commands';
 import { CommandService } from 'vs/workbench/services/commands/common/commandService';
+import { URI } from 'vs/base/common/uri';
+import { createHash } from 'crypto';
 
 class SettingsTestEnvironmentService extends EnvironmentService {
 
@@ -84,17 +82,17 @@ suite('ConfigurationEditingService', () => {
 			.then(() => setUpServices());
 	});
 
-	function setUpWorkspace(): TPromise<boolean> {
+	async function setUpWorkspace(): Promise<boolean> {
 		const id = uuid.generateUuid();
 		parentDir = path.join(os.tmpdir(), 'vsctests', id);
 		workspaceDir = path.join(parentDir, 'workspaceconfig', id);
 		globalSettingsFile = path.join(workspaceDir, 'config.json');
 		workspaceSettingsDir = path.join(workspaceDir, '.vscode');
 
-		return mkdirp(workspaceSettingsDir, 493);
+		return await mkdirp(workspaceSettingsDir, 493);
 	}
 
-	function setUpServices(noWorkspace: boolean = false): TPromise<void> {
+	function setUpServices(noWorkspace: boolean = false): Promise<void> {
 		// Clear services if they are already created
 		clearServices();
 
@@ -103,7 +101,7 @@ suite('ConfigurationEditingService', () => {
 		instantiationService.stub(IEnvironmentService, environmentService);
 		const workspaceService = new WorkspaceService(environmentService);
 		instantiationService.stub(IWorkspaceContextService, workspaceService);
-		return workspaceService.initialize(noWorkspace ? {} as IWindowConfiguration : workspaceDir).then(() => {
+		return workspaceService.initialize(noWorkspace ? { id: '' } : { folder: URI.file(workspaceDir), id: createHash('md5').update(URI.file(workspaceDir).toString()).digest('hex') }).then(() => {
 			instantiationService.stub(IConfigurationService, workspaceService);
 			instantiationService.stub(IFileService, new FileService(workspaceService, TestEnvironmentService, new TestTextResourceConfigurationService(), new TestConfigurationService(), new TestLifecycleService(), new TestStorageService(), new TestNotificationService(), { disableWatcher: true }));
 			instantiationService.stub(ITextFileService, instantiationService.createInstance(TestTextFileService));
@@ -124,18 +122,18 @@ suite('ConfigurationEditingService', () => {
 			if (configuraitonService) {
 				configuraitonService.dispose();
 			}
-			instantiationService = null;
+			instantiationService = null!;
 		}
 	}
 
-	function clearWorkspace(): TPromise<void> {
-		return new TPromise<void>((c, e) => {
+	function clearWorkspace(): Promise<void> {
+		return new Promise<void>((c, e) => {
 			if (parentDir) {
-				extfs.del(parentDir, os.tmpdir(), () => c(null), () => c(null));
+				extfs.del(parentDir, os.tmpdir(), () => c(undefined), () => c(undefined));
 			} else {
-				c(null);
+				c(undefined);
 			}
-		}).then(() => parentDir = null);
+		}).then(() => parentDir = null!);
 	}
 
 	test('errors cases - invalid key', () => {
@@ -180,7 +178,7 @@ suite('ConfigurationEditingService', () => {
 	test('do not notify error', () => {
 		instantiationService.stub(ITextFileService, 'isDirty', true);
 		const target = sinon.stub();
-		instantiationService.stub(INotificationService, <INotificationService>{ prompt: target, _serviceBrand: null, notify: null, error: null, info: null, warn: null });
+		instantiationService.stub(INotificationService, <INotificationService>{ prompt: target, _serviceBrand: null, notify: null!, error: null!, info: null!, warn: null! });
 		return testObject.writeConfiguration(ConfigurationTarget.USER, { key: 'configurationEditing.service.testSetting', value: 'value' }, { donotNotifyError: true })
 			.then(() => assert.fail('Should fail with ERROR_CONFIGURATION_FILE_DIRTY error.'),
 				(error: ConfigurationEditingError) => {

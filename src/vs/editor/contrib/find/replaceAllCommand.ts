@@ -2,7 +2,6 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import { Range } from 'vs/editor/common/core/range';
 import { Selection } from 'vs/editor/common/core/selection';
@@ -58,8 +57,8 @@ export class ReplaceAllCommand implements editorCommon.ICommand {
 			}
 			resultOps.push(previousOp);
 
-			for (let i = 0; i < resultOps.length; i++) {
-				builder.addEditOperation(resultOps[i].range, resultOps[i].text);
+			for (const op of resultOps) {
+				builder.addEditOperation(op.range, op.text);
 			}
 		}
 

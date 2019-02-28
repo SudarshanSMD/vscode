@@ -2,25 +2,26 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import { Emitter, Event } from 'vs/base/common/event';
-import { IDisposable, dispose } from 'vs/base/common/lifecycle';
-import URI from 'vs/base/common/uri';
-import { TPromise } from 'vs/base/common/winjs.base';
-import { FileWriteOptions, FileSystemProviderCapabilities, IFileChange, IFileService, IFileSystemProvider, IStat, IWatchOptions, FileType, FileOverwriteOptions } from 'vs/platform/files/common/files';
+import { IDisposable, dispose, toDisposable } from 'vs/base/common/lifecycle';
+import { URI } from 'vs/base/common/uri';
+import { FileWriteOptions, FileSystemProviderCapabilities, IFileChange, IFileService, IFileSystemProvider, IStat, IWatchOptions, FileType, FileOverwriteOptions, FileDeleteOptions, FileOpenOptions } from 'vs/platform/files/common/files';
 import { extHostNamedCustomer } from 'vs/workbench/api/electron-browser/extHostCustomers';
 import { ExtHostContext, ExtHostFileSystemShape, IExtHostContext, IFileChangeDto, MainContext, MainThreadFileSystemShape } from '../node/extHost.protocol';
+import { ResourceLabelFormatter, ILabelService } from 'vs/platform/label/common/label';
 
 @extHostNamedCustomer(MainContext.MainThreadFileSystem)
 export class MainThreadFileSystem implements MainThreadFileSystemShape {
 
 	private readonly _proxy: ExtHostFileSystemShape;
 	private readonly _fileProvider = new Map<number, RemoteFileSystemProvider>();
+	private readonly _resourceLabelFormatters = new Map<number, IDisposable>();
 
 	constructor(
 		extHostContext: IExtHostContext,
-		@IFileService private readonly _fileService: IFileService
+		@IFileService private readonly _fileService: IFileService,
+		@ILabelService private readonly _labelService: ILabelService
 	) {
 		this._proxy = extHostContext.getProxy(ExtHostContext.ExtHostFileSystem);
 	}
@@ -39,18 +40,36 @@ export class MainThreadFileSystem implements MainThreadFileSystemShape {
 		this._fileProvider.delete(handle);
 	}
 
+	$registerResourceLabelFormatter(handle: number, formatter: ResourceLabelFormatter): void {
+		// Dynamicily registered formatters should have priority over those contributed via package.json
+		formatter.priority = true;
+		const disposable = this._labelService.registerFormatter(formatter);
+		this._resourceLabelFormatters.set(handle, disposable);
+	}
+
+	$unregisterResourceLabelFormatter(handle: number): void {
+		dispose(this._resourceLabelFormatters.get(handle));
+		this._resourceLabelFormatters.delete(handle);
+	}
+
 	$onFileSystemChange(handle: number, changes: IFileChangeDto[]): void {
-		this._fileProvider.get(handle).$onFileSystemChange(changes);
+		const fileProvider = this._fileProvider.get(handle);
+		if (!fileProvider) {
+			throw new Error('Unknown file provider');
+		}
+		fileProvider.$onFileSystemChange(changes);
 	}
 }
 
 class RemoteFileSystemProvider implements IFileSystemProvider {
 
 	private readonly _onDidChange = new Emitter<IFileChange[]>();
-	private readonly _registrations: IDisposable[];
+	private readonly _registration: IDisposable;
 
 	readonly onDidChangeFile: Event<IFileChange[]> = this._onDidChange.event;
+
 	readonly capabilities: FileSystemProviderCapabilities;
+	readonly onDidChangeCapabilities: Event<void> = Event.None;
 
 	constructor(
 		fileService: IFileService,
@@ -60,22 +79,20 @@ class RemoteFileSystemProvider implements IFileSystemProvider {
 		private readonly _proxy: ExtHostFileSystemShape
 	) {
 		this.capabilities = capabilities;
-		this._registrations = [fileService.registerProvider(scheme, this)];
+		this._registration = fileService.registerProvider(scheme, this);
 	}
 
 	dispose(): void {
-		dispose(this._registrations);
+		this._registration.dispose();
 		this._onDidChange.dispose();
 	}
 
 	watch(resource: URI, opts: IWatchOptions) {
 		const session = Math.random();
 		this._proxy.$watch(this._handle, session, resource, opts);
-		return {
-			dispose: () => {
-				this._proxy.$unwatch(this._handle, session);
-			}
-		};
+		return toDisposable(() => {
+			this._proxy.$unwatch(this._handle, session);
+		});
 	}
 
 	$onFileSystemChange(changes: IFileChangeDto[]): void {
@@ -88,42 +105,60 @@ class RemoteFileSystemProvider implements IFileSystemProvider {
 
 	// --- forwarding calls
 
-	stat(resource: URI): TPromise<IStat> {
+	private static _asBuffer(data: Uint8Array): Buffer {
+		return Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+	}
+
+	stat(resource: URI): Promise<IStat> {
 		return this._proxy.$stat(this._handle, resource).then(undefined, err => {
 			throw err;
 		});
 	}
 
-	readFile(resource: URI): TPromise<Uint8Array, any> {
-		return this._proxy.$readFile(this._handle, resource).then(encoded => {
-			return Buffer.from(encoded, 'base64');
-		});
+	readFile(resource: URI): Promise<Uint8Array> {
+		return this._proxy.$readFile(this._handle, resource);
 	}
 
-	writeFile(resource: URI, content: Uint8Array, opts: FileWriteOptions): TPromise<void, any> {
-		let encoded = Buffer.isBuffer(content)
-			? content.toString('base64')
-			: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString('base64');
-		return this._proxy.$writeFile(this._handle, resource, encoded, opts);
+	writeFile(resource: URI, content: Uint8Array, opts: FileWriteOptions): Promise<void> {
+		return this._proxy.$writeFile(this._handle, resource, RemoteFileSystemProvider._asBuffer(content), opts);
 	}
 
-	delete(resource: URI): TPromise<void, any> {
-		return this._proxy.$delete(this._handle, resource);
+	delete(resource: URI, opts: FileDeleteOptions): Promise<void> {
+		return this._proxy.$delete(this._handle, resource, opts);
 	}
 
-	mkdir(resource: URI): TPromise<void, any> {
+	mkdir(resource: URI): Promise<void> {
 		return this._proxy.$mkdir(this._handle, resource);
 	}
 
-	readdir(resource: URI): TPromise<[string, FileType][], any> {
+	readdir(resource: URI): Promise<[string, FileType][]> {
 		return this._proxy.$readdir(this._handle, resource);
 	}
 
-	rename(resource: URI, target: URI, opts: FileOverwriteOptions): TPromise<void, any> {
+	rename(resource: URI, target: URI, opts: FileOverwriteOptions): Promise<void> {
 		return this._proxy.$rename(this._handle, resource, target, opts);
 	}
 
-	copy(resource: URI, target: URI, opts: FileOverwriteOptions): TPromise<void, any> {
+	copy(resource: URI, target: URI, opts: FileOverwriteOptions): Promise<void> {
 		return this._proxy.$copy(this._handle, resource, target, opts);
+	}
+
+	open(resource: URI, opts: FileOpenOptions): Promise<number> {
+		return this._proxy.$open(this._handle, resource, opts);
+	}
+
+	close(fd: number): Promise<void> {
+		return this._proxy.$close(this._handle, fd);
+	}
+
+	read(fd: number, pos: number, data: Uint8Array, offset: number, length: number): Promise<number> {
+		return this._proxy.$read(this._handle, fd, pos, length).then(readData => {
+			data.set(readData, offset);
+			return readData.byteLength;
+		});
+	}
+
+	write(fd: number, pos: number, data: Uint8Array, offset: number, length: number): Promise<number> {
+		return this._proxy.$write(this._handle, fd, pos, Buffer.from(data, offset, length));
 	}
 }

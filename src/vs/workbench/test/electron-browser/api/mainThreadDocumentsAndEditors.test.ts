@@ -3,8 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import * as assert from 'assert';
 import { MainThreadDocumentsAndEditors } from 'vs/workbench/api/electron-browser/mainThreadDocumentsAndEditors';
 import { SingleProxyRPCProtocol } from './testRPCProtocol';
@@ -15,12 +13,13 @@ import { ITextFileService } from 'vs/workbench/services/textfile/common/textfile
 import { ExtHostDocumentsAndEditorsShape, IDocumentsAndEditorsDelta } from 'vs/workbench/api/node/extHost.protocol';
 import { createTestCodeEditor, TestCodeEditor } from 'vs/editor/test/browser/testCodeEditor';
 import { mock } from 'vs/workbench/test/electron-browser/api/mock';
-import { TestEditorService, TestEditorGroupsService } from 'vs/workbench/test/workbenchTestServices';
+import { TestEditorService, TestEditorGroupsService, TestTextResourcePropertiesService } from 'vs/workbench/test/workbenchTestServices';
 import { Event } from 'vs/base/common/event';
 import { ITextModel } from 'vs/editor/common/model';
 import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
 import { ICodeEditorService } from 'vs/editor/browser/services/codeEditorService';
 import { IFileService } from 'vs/platform/files/common/files';
+import { IPanelService } from 'vs/workbench/services/panel/common/panelService';
 
 suite('MainThreadDocumentsAndEditors', () => {
 
@@ -30,7 +29,7 @@ suite('MainThreadDocumentsAndEditors', () => {
 	let deltas: IDocumentsAndEditorsDelta[] = [];
 	const hugeModelString = new Array(2 + (50 * 1024 * 1024)).join('-');
 
-	function myCreateTestCodeEditor(model: ITextModel): TestCodeEditor {
+	function myCreateTestCodeEditor(model: ITextModel | undefined): TestCodeEditor {
 		return createTestCodeEditor({
 			model: model,
 			serviceCollection: new ServiceCollection(
@@ -43,7 +42,7 @@ suite('MainThreadDocumentsAndEditors', () => {
 		deltas.length = 0;
 		const configService = new TestConfigurationService();
 		configService.setUserConfiguration('editor', { 'detectIndentation': false });
-		modelService = new ModelServiceImpl(null, configService);
+		modelService = new ModelServiceImpl(configService, new TestTextResourcePropertiesService(configService));
 		codeEditorService = new TestCodeEditorService();
 		textFileService = new class extends mock<ITextFileService>() {
 			isDirty() { return false; }
@@ -69,12 +68,20 @@ suite('MainThreadDocumentsAndEditors', () => {
 			textFileService,
 			workbenchEditorService,
 			codeEditorService,
-			null,
+			null!,
 			fileService,
-			null,
-			null,
+			null!,
+			null!,
 			editorGroupService,
-			null
+			null!,
+			new class extends mock<IPanelService>() implements IPanelService {
+				_serviceBrand: any;
+				onDidPanelOpen = Event.None;
+				onDidPanelClose = Event.None;
+				getActivePanel() {
+					return null;
+				}
+			}
 		);
 		/* tslint:enable */
 	});
@@ -88,7 +95,7 @@ suite('MainThreadDocumentsAndEditors', () => {
 		assert.equal(deltas.length, 1);
 		const [delta] = deltas;
 
-		assert.equal(delta.addedDocuments.length, 1);
+		assert.equal(delta.addedDocuments!.length, 1);
 		assert.equal(delta.removedDocuments, undefined);
 		assert.equal(delta.addedEditors, undefined);
 		assert.equal(delta.removedEditors, undefined);
@@ -139,7 +146,7 @@ suite('MainThreadDocumentsAndEditors', () => {
 	});
 
 	test('ignore editor w/o model', () => {
-		const editor = myCreateTestCodeEditor(null);
+		const editor = myCreateTestCodeEditor(undefined);
 		assert.equal(deltas.length, 1);
 		const [delta] = deltas;
 		assert.equal(delta.newActiveEditor, null);
@@ -159,13 +166,13 @@ suite('MainThreadDocumentsAndEditors', () => {
 
 		assert.equal(deltas.length, 2);
 		const [first, second] = deltas;
-		assert.equal(first.addedDocuments.length, 1);
+		assert.equal(first.addedDocuments!.length, 1);
 		assert.equal(first.newActiveEditor, null);
 		assert.equal(first.removedDocuments, undefined);
 		assert.equal(first.addedEditors, undefined);
 		assert.equal(first.removedEditors, undefined);
 
-		assert.equal(second.addedEditors.length, 1);
+		assert.equal(second.addedEditors!.length, 1);
 		assert.equal(second.addedDocuments, undefined);
 		assert.equal(second.removedDocuments, undefined);
 		assert.equal(second.removedEditors, undefined);
@@ -187,8 +194,8 @@ suite('MainThreadDocumentsAndEditors', () => {
 		const [first] = deltas;
 
 		assert.equal(first.newActiveEditor, null);
-		assert.equal(first.removedEditors.length, 1);
-		assert.equal(first.removedDocuments.length, 1);
+		assert.equal(first.removedEditors!.length, 1);
+		assert.equal(first.removedDocuments!.length, 1);
 		assert.equal(first.addedDocuments, undefined);
 		assert.equal(first.addedEditors, undefined);
 

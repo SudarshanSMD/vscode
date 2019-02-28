@@ -2,22 +2,19 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
-import URI from 'vs/base/common/uri';
-import { TPromise } from 'vs/base/common/winjs.base';
-import { dirname, basename } from 'path';
+import { URI } from 'vs/base/common/uri';
 import * as assert from 'vs/base/common/assert';
 import { Event, Emitter } from 'vs/base/common/event';
 import { ResourceMap } from 'vs/base/common/map';
 import { equals, deepClone } from 'vs/base/common/objects';
 import { Disposable } from 'vs/base/common/lifecycle';
 import { Queue } from 'vs/base/common/async';
-import { stat, writeFile } from 'vs/base/node/pfs';
+import { writeFile } from 'vs/base/node/pfs';
 import { IJSONContributionRegistry, Extensions as JSONExtensions } from 'vs/platform/jsonschemas/common/jsonContributionRegistry';
 import { IWorkspaceContextService, Workspace, WorkbenchState, IWorkspaceFolder, toWorkspaceFolders, IWorkspaceFoldersChangeEvent, WorkspaceFolder } from 'vs/platform/workspace/common/workspace';
-import { IFileService } from 'vs/platform/files/common/files';
 import { isLinux } from 'vs/base/common/platform';
+import { IFileService } from 'vs/platform/files/common/files';
 import { IEnvironmentService } from 'vs/platform/environment/common/environment';
 import { ConfigurationChangeEvent, ConfigurationModel, DefaultConfigurationModel } from 'vs/platform/configuration/common/configurationModels';
 import { IConfigurationChangeEvent, ConfigurationTarget, IConfigurationOverrides, keyFromOverrideIdentifier, isConfigurationOverrides, IConfigurationData } from 'vs/platform/configuration/common/configuration';
@@ -25,28 +22,27 @@ import { Configuration, WorkspaceConfigurationChangeEvent, AllKeysConfigurationC
 import { IWorkspaceConfigurationService, FOLDER_CONFIG_FOLDER_NAME, defaultSettingsSchemaId, userSettingsSchemaId, workspaceSettingsSchemaId, folderSettingsSchemaId } from 'vs/workbench/services/configuration/common/configuration';
 import { Registry } from 'vs/platform/registry/common/platform';
 import { IConfigurationNode, IConfigurationRegistry, Extensions, IConfigurationPropertySchema, allSettings, windowSettings, resourceSettings, applicationSettings } from 'vs/platform/configuration/common/configurationRegistry';
-import { createHash } from 'crypto';
-import { getWorkspaceLabel, IWorkspaceIdentifier, ISingleFolderWorkspaceIdentifier, isSingleFolderWorkspaceIdentifier, isWorkspaceIdentifier, IStoredWorkspaceFolder, isStoredWorkspaceFolder, IWorkspaceFolderCreationData } from 'vs/platform/workspaces/common/workspaces';
-import { IWindowConfiguration } from 'vs/platform/windows/common/windows';
+import { IWorkspaceIdentifier, isWorkspaceIdentifier, IStoredWorkspaceFolder, isStoredWorkspaceFolder, IWorkspaceFolderCreationData, ISingleFolderWorkspaceIdentifier, isSingleFolderWorkspaceIdentifier, IWorkspaceInitializationPayload, isSingleFolderWorkspaceInitializationPayload, ISingleFolderWorkspaceInitializationPayload, IEmptyWorkspaceInitializationPayload, useSlashForPath, getStoredWorkspaceFolder } from 'vs/platform/workspaces/common/workspaces';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { ICommandService } from 'vs/platform/commands/common/commands';
-import product from 'vs/platform/node/product';
+import product from 'vs/platform/product/node/product';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { ConfigurationEditingService } from 'vs/workbench/services/configuration/node/configurationEditingService';
 import { WorkspaceConfiguration, FolderConfiguration } from 'vs/workbench/services/configuration/node/configuration';
 import { JSONEditingService } from 'vs/workbench/services/configuration/node/jsonEditingService';
-import { Schemas } from 'vs/base/common/network';
-import { massageFolderPathForWorkspace } from 'vs/platform/workspaces/node/workspaces';
 import { UserConfiguration } from 'vs/platform/configuration/node/configuration';
-import { getBaseLabel } from 'vs/base/common/labels';
 import { IJSONSchema, IJSONSchemaMap } from 'vs/base/common/jsonSchema';
 import { localize } from 'vs/nls';
+import { isEqual, dirname } from 'vs/base/common/resources';
+import { mark } from 'vs/base/common/performance';
 
 export class WorkspaceService extends Disposable implements IWorkspaceConfigurationService, IWorkspaceContextService {
 
 	public _serviceBrand: any;
 
 	private workspace: Workspace;
+	private resolvePromise: Promise<void>;
+	private resolveCallback: () => void;
 	private _configuration: Configuration;
 	private defaultConfiguration: DefaultConfigurationModel;
 	private userConfiguration: UserConfiguration;
@@ -74,19 +70,24 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 	constructor(private environmentService: IEnvironmentService, private workspaceSettingsRootFolder: string = FOLDER_CONFIG_FOLDER_NAME) {
 		super();
 
+		this.resolvePromise = new Promise(c => this.resolveCallback = c);
 		this.defaultConfiguration = new DefaultConfigurationModel();
 		this.userConfiguration = this._register(new UserConfiguration(environmentService.appSettingsPath));
-		this.workspaceConfiguration = this._register(new WorkspaceConfiguration());
-		this._register(this.userConfiguration.onDidChangeConfiguration(() => this.onUserConfigurationChanged()));
+		this.workspaceConfiguration = this._register(new WorkspaceConfiguration(environmentService));
+		this._register(this.userConfiguration.onDidChangeConfiguration(userConfiguration => this.onUserConfigurationChanged(userConfiguration)));
 		this._register(this.workspaceConfiguration.onDidUpdateConfiguration(() => this.onWorkspaceConfigurationChanged()));
 
-		this._register(Registry.as<IConfigurationRegistry>(Extensions.Configuration).onDidRegisterConfiguration(e => this.registerConfigurationSchemas()));
-		this._register(Registry.as<IConfigurationRegistry>(Extensions.Configuration).onDidRegisterConfiguration(configurationProperties => this.onDefaultConfigurationChanged(configurationProperties)));
+		this._register(Registry.as<IConfigurationRegistry>(Extensions.Configuration).onDidSchemaChange(e => this.registerConfigurationSchemas()));
+		this._register(Registry.as<IConfigurationRegistry>(Extensions.Configuration).onDidUpdateConfiguration(configurationProperties => this.onDefaultConfigurationChanged(configurationProperties)));
 
 		this.workspaceEditingQueue = new Queue<void>();
 	}
 
 	// Workspace Context Service Impl
+
+	public getCompleteWorkspace(): Promise<Workspace> {
+		return this.resolvePromise.then(() => this.getWorkspace());
+	}
 
 	public getWorkspace(): Workspace {
 		return this.workspace;
@@ -111,17 +112,17 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		return this.workspace.getFolder(resource);
 	}
 
-	public addFolders(foldersToAdd: IWorkspaceFolderCreationData[], index?: number): TPromise<void> {
+	public addFolders(foldersToAdd: IWorkspaceFolderCreationData[], index?: number): Promise<void> {
 		return this.updateFolders(foldersToAdd, [], index);
 	}
 
-	public removeFolders(foldersToRemove: URI[]): TPromise<void> {
+	public removeFolders(foldersToRemove: URI[]): Promise<void> {
 		return this.updateFolders([], foldersToRemove);
 	}
 
-	public updateFolders(foldersToAdd: IWorkspaceFolderCreationData[], foldersToRemove: URI[], index?: number): TPromise<void> {
+	public updateFolders(foldersToAdd: IWorkspaceFolderCreationData[], foldersToRemove: URI[], index?: number): Promise<void> {
 		assert.ok(this.jsonEditingService, 'Workbench is not initialized yet');
-		return this.workspaceEditingQueue.queue(() => this.doUpdateFolders(foldersToAdd, foldersToRemove, index));
+		return Promise.resolve(this.workspaceEditingQueue.queue(() => this.doUpdateFolders(foldersToAdd, foldersToRemove, index)));
 	}
 
 	public isInsideWorkspace(resource: URI): boolean {
@@ -131,20 +132,20 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 	public isCurrentWorkspace(workspaceIdentifier: ISingleFolderWorkspaceIdentifier | IWorkspaceIdentifier): boolean {
 		switch (this.getWorkbenchState()) {
 			case WorkbenchState.FOLDER:
-				return isSingleFolderWorkspaceIdentifier(workspaceIdentifier) && this.pathEquals(this.workspace.folders[0].uri.fsPath, workspaceIdentifier);
+				return isSingleFolderWorkspaceIdentifier(workspaceIdentifier) && isEqual(workspaceIdentifier, this.workspace.folders[0].uri);
 			case WorkbenchState.WORKSPACE:
 				return isWorkspaceIdentifier(workspaceIdentifier) && this.workspace.id === workspaceIdentifier.id;
 		}
 		return false;
 	}
 
-	private doUpdateFolders(foldersToAdd: IWorkspaceFolderCreationData[], foldersToRemove: URI[], index?: number): TPromise<void> {
+	private doUpdateFolders(foldersToAdd: IWorkspaceFolderCreationData[], foldersToRemove: URI[], index?: number): Promise<void> {
 		if (this.getWorkbenchState() !== WorkbenchState.WORKSPACE) {
-			return TPromise.as(void 0); // we need a workspace to begin with
+			return Promise.resolve(undefined); // we need a workspace to begin with
 		}
 
 		if (foldersToAdd.length + foldersToRemove.length === 0) {
-			return TPromise.as(void 0); // nothing to do
+			return Promise.resolve(undefined); // nothing to do
 		}
 
 		let foldersHaveChanged = false;
@@ -159,44 +160,26 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 			return !this.contains(foldersToRemove, currentWorkspaceFolders[index].uri); // keep entries which are unrelated
 		});
 
+		const slashForPath = useSlashForPath(newStoredFolders);
+
 		foldersHaveChanged = currentWorkspaceFolders.length !== newStoredFolders.length;
 
 		// Add afterwards (if any)
 		if (foldersToAdd.length) {
 
 			// Recompute current workspace folders if we have folders to add
-			const workspaceConfigFolder = dirname(this.getWorkspace().configuration.fsPath);
-			currentWorkspaceFolders = toWorkspaceFolders(newStoredFolders, URI.file(workspaceConfigFolder));
+			const workspaceConfigFolder = dirname(this.getWorkspace().configuration);
+			currentWorkspaceFolders = toWorkspaceFolders(newStoredFolders, workspaceConfigFolder);
 			const currentWorkspaceFolderUris = currentWorkspaceFolders.map(folder => folder.uri);
 
 			const storedFoldersToAdd: IStoredWorkspaceFolder[] = [];
 
 			foldersToAdd.forEach(folderToAdd => {
-				if (this.contains(currentWorkspaceFolderUris, folderToAdd.uri)) {
+				const folderURI = folderToAdd.uri;
+				if (this.contains(currentWorkspaceFolderUris, folderURI)) {
 					return; // already existing
 				}
-
-				let storedFolder: IStoredWorkspaceFolder;
-
-				// File resource: use "path" property
-				if (folderToAdd.uri.scheme === Schemas.file) {
-					storedFolder = {
-						path: massageFolderPathForWorkspace(folderToAdd.uri.fsPath, workspaceConfigFolder, newStoredFolders)
-					};
-				}
-
-				// Any other resource: use "uri" property
-				else {
-					storedFolder = {
-						uri: folderToAdd.uri.toString(true)
-					};
-				}
-
-				if (folderToAdd.name) {
-					storedFolder.name = folderToAdd.name;
-				}
-
-				storedFoldersToAdd.push(storedFolder);
+				storedFoldersToAdd.push(getStoredWorkspaceFolder(folderURI, folderToAdd.name, workspaceConfigFolder, slashForPath));
 			});
 
 			// Apply to array of newStoredFolders
@@ -217,10 +200,10 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 			return this.setFolders(newStoredFolders);
 		}
 
-		return TPromise.as(void 0);
+		return Promise.resolve(undefined);
 	}
 
-	private setFolders(folders: IStoredWorkspaceFolder[]): TPromise<void> {
+	private setFolders(folders: IStoredWorkspaceFolder[]): Promise<void> {
 		return this.workspaceConfiguration.setFolders(folders, this.jsonEditingService)
 			.then(() => this.onWorkspaceConfigurationChanged());
 	}
@@ -248,38 +231,38 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 	getValue<T>(overrides: IConfigurationOverrides): T;
 	getValue<T>(section: string, overrides: IConfigurationOverrides): T;
 	getValue(arg1?: any, arg2?: any): any {
-		const section = typeof arg1 === 'string' ? arg1 : void 0;
-		const overrides = isConfigurationOverrides(arg1) ? arg1 : isConfigurationOverrides(arg2) ? arg2 : void 0;
+		const section = typeof arg1 === 'string' ? arg1 : undefined;
+		const overrides = isConfigurationOverrides(arg1) ? arg1 : isConfigurationOverrides(arg2) ? arg2 : undefined;
 		return this._configuration.getValue(section, overrides);
 	}
 
-	updateValue(key: string, value: any): TPromise<void>;
-	updateValue(key: string, value: any, overrides: IConfigurationOverrides): TPromise<void>;
-	updateValue(key: string, value: any, target: ConfigurationTarget): TPromise<void>;
-	updateValue(key: string, value: any, overrides: IConfigurationOverrides, target: ConfigurationTarget): TPromise<void>;
-	updateValue(key: string, value: any, overrides: IConfigurationOverrides, target: ConfigurationTarget, donotNotifyError: boolean): TPromise<void>;
-	updateValue(key: string, value: any, arg3?: any, arg4?: any, donotNotifyError?: any): TPromise<void> {
+	updateValue(key: string, value: any): Promise<void>;
+	updateValue(key: string, value: any, overrides: IConfigurationOverrides): Promise<void>;
+	updateValue(key: string, value: any, target: ConfigurationTarget): Promise<void>;
+	updateValue(key: string, value: any, overrides: IConfigurationOverrides, target: ConfigurationTarget): Promise<void>;
+	updateValue(key: string, value: any, overrides: IConfigurationOverrides, target: ConfigurationTarget, donotNotifyError: boolean): Promise<void>;
+	updateValue(key: string, value: any, arg3?: any, arg4?: any, donotNotifyError?: any): Promise<void> {
 		assert.ok(this.configurationEditingService, 'Workbench is not initialized yet');
-		const overrides = isConfigurationOverrides(arg3) ? arg3 : void 0;
+		const overrides = isConfigurationOverrides(arg3) ? arg3 : undefined;
 		const target = this.deriveConfigurationTarget(key, value, overrides, overrides ? arg4 : arg3);
 		return target ? this.writeConfigurationValue(key, value, target, overrides, donotNotifyError)
-			: TPromise.as(null);
+			: Promise.resolve(null);
 	}
 
-	reloadConfiguration(folder?: IWorkspaceFolder, key?: string): TPromise<void> {
+	reloadConfiguration(folder?: IWorkspaceFolder, key?: string): Promise<void> {
 		if (folder) {
 			return this.reloadWorkspaceFolderConfiguration(folder, key);
 		}
 		return this.reloadUserConfiguration()
-			.then(() => this.reloadWorkspaceConfiguration())
-			.then(() => this.loadConfiguration());
+			.then(userConfigurationModel => this.reloadWorkspaceConfiguration()
+				.then(() => this.loadConfiguration(userConfigurationModel)));
 	}
 
 	inspect<T>(key: string, overrides?: IConfigurationOverrides): {
 		default: T,
 		user: T,
-		workspace: T,
-		workspaceFolder: T,
+		workspace?: T,
+		workspaceFolder?: T,
 		memory?: T,
 		value: T
 	} {
@@ -295,25 +278,33 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		return this._configuration.keys();
 	}
 
-	initialize(arg: IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier | IWindowConfiguration): TPromise<any> {
+	initialize(arg: IWorkspaceInitializationPayload, postInitialisationTask: () => void = () => null): Promise<any> {
+		mark('willInitWorkspaceService');
 		return this.createWorkspace(arg)
-			.then(workspace => this.updateWorkspaceAndInitializeConfiguration(workspace));
+			.then(workspace => this.updateWorkspaceAndInitializeConfiguration(workspace, postInitialisationTask)).then(() => {
+				mark('didInitWorkspaceService');
+			});
 	}
 
 	acquireFileService(fileService: IFileService): void {
 		this.fileService = fileService;
 		const changedWorkspaceFolders: IWorkspaceFolder[] = [];
-		TPromise.join(this.cachedFolderConfigs.values()
+		Promise.all([this.workspaceConfiguration.adopt(fileService), ...this.cachedFolderConfigs.values()
 			.map(folderConfiguration => folderConfiguration.adopt(fileService)
 				.then(result => {
 					if (result) {
 						changedWorkspaceFolders.push(folderConfiguration.workspaceFolder);
 					}
-				})))
-			.then(() => {
+					return result;
+				}))])
+			.then(([workspaceChanged]) => {
+				if (workspaceChanged) {
+					this.onWorkspaceConfigurationChanged();
+				}
 				for (const workspaceFolder of changedWorkspaceFolders) {
 					this.onWorkspaceFolderConfigurationChanged(workspaceFolder);
 				}
+				this.resolveCallback();
 			});
 	}
 
@@ -322,46 +313,46 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		this.jsonEditingService = instantiationService.createInstance(JSONEditingService);
 	}
 
-	private createWorkspace(arg: IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier | IWindowConfiguration): TPromise<Workspace> {
+	private createWorkspace(arg: IWorkspaceInitializationPayload): Promise<Workspace> {
 		if (isWorkspaceIdentifier(arg)) {
-			return this.createMulitFolderWorkspace(arg);
+			return this.createMultiFolderWorkspace(arg);
 		}
 
-		if (isSingleFolderWorkspaceIdentifier(arg)) {
+		if (isSingleFolderWorkspaceInitializationPayload(arg)) {
 			return this.createSingleFolderWorkspace(arg);
 		}
 
 		return this.createEmptyWorkspace(arg);
 	}
 
-	private createMulitFolderWorkspace(workspaceIdentifier: IWorkspaceIdentifier): TPromise<Workspace> {
-		const workspaceConfigPath = URI.file(workspaceIdentifier.configPath);
-		return this.workspaceConfiguration.load(workspaceConfigPath)
+	private createMultiFolderWorkspace(workspaceIdentifier: IWorkspaceIdentifier): Promise<Workspace> {
+		return this.workspaceConfiguration.load({ id: workspaceIdentifier.id, configPath: workspaceIdentifier.configPath })
 			.then(() => {
-				const workspaceFolders = toWorkspaceFolders(this.workspaceConfiguration.getFolders(), URI.file(dirname(workspaceConfigPath.fsPath)));
+				const workspaceConfigPath = workspaceIdentifier.configPath;
+				const workspaceFolders = toWorkspaceFolders(this.workspaceConfiguration.getFolders(), dirname(workspaceConfigPath));
 				const workspaceId = workspaceIdentifier.id;
-				const workspaceName = getWorkspaceLabel({ id: workspaceId, configPath: workspaceConfigPath.fsPath }, this.environmentService);
-				return new Workspace(workspaceId, workspaceName, workspaceFolders, workspaceConfigPath);
+				return new Workspace(workspaceId, workspaceFolders, workspaceConfigPath);
 			});
 	}
 
-	private createSingleFolderWorkspace(singleFolderWorkspaceIdentifier: ISingleFolderWorkspaceIdentifier): TPromise<Workspace> {
-		const folderPath = URI.file(singleFolderWorkspaceIdentifier);
-		return stat(folderPath.fsPath)
-			.then(workspaceStat => {
-				const ctime = isLinux ? workspaceStat.ino : workspaceStat.birthtime.getTime(); // On Linux, birthtime is ctime, so we cannot use it! We use the ino instead!
-				const id = createHash('md5').update(folderPath.fsPath).update(ctime ? String(ctime) : '').digest('hex');
-				const folder = URI.file(folderPath.fsPath);
-				return new Workspace(id, getBaseLabel(folder), toWorkspaceFolders([{ path: folder.fsPath }]), null, ctime);
-			});
+	private createSingleFolderWorkspace(singleFolder: ISingleFolderWorkspaceInitializationPayload): Promise<Workspace> {
+		const folder = singleFolder.folder;
+
+		let configuredFolders: IStoredWorkspaceFolder[];
+		if (folder.scheme === 'file') {
+			configuredFolders = [{ path: folder.fsPath }];
+		} else {
+			configuredFolders = [{ uri: folder.toString() }];
+		}
+
+		return Promise.resolve(new Workspace(singleFolder.id, toWorkspaceFolders(configuredFolders)));
 	}
 
-	private createEmptyWorkspace(configuration: IWindowConfiguration): TPromise<Workspace> {
-		let id = configuration.backupPath ? URI.from({ path: basename(configuration.backupPath), scheme: 'empty' }).toString() : '';
-		return TPromise.as(new Workspace(id));
+	private createEmptyWorkspace(emptyWorkspace: IEmptyWorkspaceInitializationPayload): Promise<Workspace> {
+		return Promise.resolve(new Workspace(emptyWorkspace.id));
 	}
 
-	private updateWorkspaceAndInitializeConfiguration(workspace: Workspace): TPromise<void> {
+	private updateWorkspaceAndInitializeConfiguration(workspace: Workspace, postInitialisationTask: () => void): Promise<void> {
 		const hasWorkspaceBefore = !!this.workspace;
 		let previousState: WorkbenchState;
 		let previousWorkspacePath: string;
@@ -369,7 +360,7 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 
 		if (hasWorkspaceBefore) {
 			previousState = this.getWorkbenchState();
-			previousWorkspacePath = this.workspace.configuration ? this.workspace.configuration.fsPath : void 0;
+			previousWorkspacePath = this.workspace.configuration ? this.workspace.configuration.fsPath : undefined;
 			previousFolders = this.workspace.folders;
 			this.workspace.update(workspace);
 		} else {
@@ -377,6 +368,9 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		}
 
 		return this.initializeConfiguration().then(() => {
+
+			postInitialisationTask(); // Post initialisation task should be run before triggering events.
+
 			// Trigger changes after configuration initialization so that configuration is up to date.
 			if (hasWorkspaceBefore) {
 				const newState = this.getWorkbenchState();
@@ -384,7 +378,7 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 					this._onDidChangeWorkbenchState.fire(newState);
 				}
 
-				const newWorkspacePath = this.workspace.configuration ? this.workspace.configuration.fsPath : void 0;
+				const newWorkspacePath = this.workspace.configuration ? this.workspace.configuration.fsPath : undefined;
 				if (previousWorkspacePath && newWorkspacePath !== previousWorkspacePath || newState !== previousState) {
 					this._onDidChangeWorkspaceName.fire();
 				}
@@ -415,16 +409,17 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		return result;
 	}
 
-	private initializeConfiguration(): TPromise<void> {
+	private initializeConfiguration(): Promise<void> {
 		this.registerConfigurationSchemas();
-		return this.loadConfiguration();
+		return this.userConfiguration.initialize()
+			.then(userConfigurationModel => this.loadConfiguration(userConfigurationModel));
 	}
 
-	private reloadUserConfiguration(key?: string): TPromise<void> {
+	private reloadUserConfiguration(key?: string): Promise<ConfigurationModel> {
 		return this.userConfiguration.reload();
 	}
 
-	private reloadWorkspaceConfiguration(key?: string): TPromise<void> {
+	private reloadWorkspaceConfiguration(key?: string): Promise<void> {
 		const workbenchState = this.getWorkbenchState();
 		if (workbenchState === WorkbenchState.FOLDER) {
 			return this.onWorkspaceFolderConfigurationChanged(this.workspace.folders[0], key);
@@ -432,14 +427,14 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		if (workbenchState === WorkbenchState.WORKSPACE) {
 			return this.workspaceConfiguration.reload().then(() => this.onWorkspaceConfigurationChanged());
 		}
-		return TPromise.as(null);
+		return Promise.resolve(undefined);
 	}
 
-	private reloadWorkspaceFolderConfiguration(folder: IWorkspaceFolder, key?: string): TPromise<void> {
+	private reloadWorkspaceFolderConfiguration(folder: IWorkspaceFolder, key?: string): Promise<void> {
 		return this.onWorkspaceFolderConfigurationChanged(folder, key);
 	}
 
-	private loadConfiguration(): TPromise<void> {
+	private loadConfiguration(userConfigurationModel: ConfigurationModel): Promise<void> {
 		// reset caches
 		this.cachedFolderConfigs = new ResourceMap<FolderConfiguration>();
 
@@ -452,7 +447,7 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 				folderConfigurations.forEach((folderConfiguration, index) => folderConfigurationModels.set(folders[index].uri, folderConfiguration));
 
 				const currentConfiguration = this._configuration;
-				this._configuration = new Configuration(this.defaultConfiguration, this.userConfiguration.configurationModel, workspaceConfiguration, folderConfigurationModels, new ConfigurationModel(), new ResourceMap<ConfigurationModel>(), this.getWorkbenchState() !== WorkbenchState.EMPTY ? this.workspace : null); //TODO: Sandy Avoid passing null
+				this._configuration = new Configuration(this.defaultConfiguration, userConfigurationModel, workspaceConfiguration, folderConfigurationModels, new ConfigurationModel(), new ResourceMap<ConfigurationModel>(), this.getWorkbenchState() !== WorkbenchState.EMPTY ? this.workspace : null); //TODO: Sandy Avoid passing null
 
 				if (currentConfiguration) {
 					const changedKeys = this._configuration.compare(currentConfiguration);
@@ -519,15 +514,15 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		}
 	}
 
-	private onUserConfigurationChanged(): void {
-		let keys = this._configuration.compareAndUpdateUserConfiguration(this.userConfiguration.configurationModel);
+	private onUserConfigurationChanged(userConfiguration: ConfigurationModel): void {
+		const keys = this._configuration.compareAndUpdateUserConfiguration(userConfiguration);
 		this.triggerConfigurationChange(keys, ConfigurationTarget.USER);
 	}
 
-	private onWorkspaceConfigurationChanged(): TPromise<void> {
+	private onWorkspaceConfigurationChanged(): Promise<void> {
 		if (this.workspace && this.workspace.configuration && this._configuration) {
 			const workspaceConfigurationChangeEvent = this._configuration.compareAndUpdateWorkspaceConfiguration(this.workspaceConfiguration.getConfiguration());
-			let configuredFolders = toWorkspaceFolders(this.workspaceConfiguration.getFolders(), URI.file(dirname(this.workspace.configuration.fsPath)));
+			let configuredFolders = toWorkspaceFolders(this.workspaceConfiguration.getFolders(), dirname(this.workspace.configuration));
 			const changes = this.compareFolders(this.workspace.folders, configuredFolders);
 			if (changes.added.length || changes.removed.length || changes.changed.length) {
 				this.workspace.folders = configuredFolders;
@@ -540,10 +535,10 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 				this.triggerConfigurationChange(workspaceConfigurationChangeEvent, ConfigurationTarget.WORKSPACE);
 			}
 		}
-		return TPromise.as(null);
+		return Promise.resolve(undefined);
 	}
 
-	private onWorkspaceFolderConfigurationChanged(folder: IWorkspaceFolder, key?: string): TPromise<void> {
+	private onWorkspaceFolderConfigurationChanged(folder: IWorkspaceFolder, key?: string): Promise<void> {
 		return this.loadFolderConfigurations([folder])
 			.then(([folderConfiguration]) => {
 				const folderChangedKeys = this._configuration.compareAndUpdateFolderConfiguration(folder.uri, folderConfiguration);
@@ -556,7 +551,7 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 			});
 	}
 
-	private onFoldersChanged(): TPromise<ConfigurationChangeEvent> {
+	private onFoldersChanged(): Promise<ConfigurationChangeEvent> {
 		let changeEvent = new ConfigurationChangeEvent();
 
 		// Remove the configurations of deleted folders
@@ -579,11 +574,11 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 					return changeEvent;
 				});
 		}
-		return TPromise.as(changeEvent);
+		return Promise.resolve(changeEvent);
 	}
 
-	private loadFolderConfigurations(folders: IWorkspaceFolder[]): TPromise<ConfigurationModel[]> {
-		return TPromise.join([...folders.map(folder => {
+	private loadFolderConfigurations(folders: IWorkspaceFolder[]): Promise<ConfigurationModel[]> {
+		return Promise.all([...folders.map(folder => {
 			let folderConfiguration = this.cachedFolderConfigs.get(folder.uri);
 			if (!folderConfiguration) {
 				folderConfiguration = new FolderConfiguration(folder, this.workspaceSettingsRootFolder, this.getWorkbenchState(), this.environmentService, this.fileService);
@@ -594,15 +589,15 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		})]);
 	}
 
-	private writeConfigurationValue(key: string, value: any, target: ConfigurationTarget, overrides: IConfigurationOverrides, donotNotifyError: boolean): TPromise<void> {
+	private writeConfigurationValue(key: string, value: any, target: ConfigurationTarget, overrides: IConfigurationOverrides | undefined, donotNotifyError: boolean): Promise<void> {
 		if (target === ConfigurationTarget.DEFAULT) {
-			return TPromise.wrapError(new Error('Invalid configuration target'));
+			return Promise.reject(new Error('Invalid configuration target'));
 		}
 
 		if (target === ConfigurationTarget.MEMORY) {
 			this._configuration.updateValue(key, value, overrides);
-			this.triggerConfigurationChange(new ConfigurationChangeEvent().change(overrides.overrideIdentifier ? [keyFromOverrideIdentifier(overrides.overrideIdentifier)] : [key], overrides.resource), target);
-			return TPromise.as(null);
+			this.triggerConfigurationChange(new ConfigurationChangeEvent().change(overrides && overrides.overrideIdentifier ? [keyFromOverrideIdentifier(overrides.overrideIdentifier)] : [key], overrides && overrides.resource), target);
+			return Promise.resolve(undefined);
 		}
 
 		return this.configurationEditingService.writeConfiguration(target, { key, value }, { scopes: overrides, donotNotifyError })
@@ -615,7 +610,7 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 					case ConfigurationTarget.WORKSPACE_FOLDER:
 						const workspaceFolder = overrides && overrides.resource ? this.workspace.getFolder(overrides.resource) : null;
 						if (workspaceFolder) {
-							return this.reloadWorkspaceFolderConfiguration(this.workspace.getFolder(overrides.resource), key);
+							return this.reloadWorkspaceFolderConfiguration(this.workspace.getFolder(overrides.resource), key).then(() => null);
 						}
 				}
 				return null;
@@ -627,22 +622,22 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 			return target;
 		}
 
-		if (value === void 0) {
+		if (value === undefined) {
 			// Ignore. But expected is to remove the value from all targets
-			return void 0;
+			return undefined;
 		}
 
 		const inspect = this.inspect(key, overrides);
 		if (equals(value, inspect.value)) {
 			// No change. So ignore.
-			return void 0;
+			return undefined;
 		}
 
-		if (inspect.workspaceFolder !== void 0) {
+		if (inspect.workspaceFolder !== undefined) {
 			return ConfigurationTarget.WORKSPACE_FOLDER;
 		}
 
-		if (inspect.workspace !== void 0) {
+		if (inspect.workspace !== undefined) {
 			return ConfigurationTarget.WORKSPACE;
 		}
 
@@ -667,15 +662,6 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 		}
 		return {};
 	}
-
-	private pathEquals(path1: string, path2: string): boolean {
-		if (!isLinux) {
-			path1 = path1.toLowerCase();
-			path2 = path2.toLowerCase();
-		}
-
-		return path1 === path2;
-	}
 }
 
 interface IExportedConfigurationNode {
@@ -698,21 +684,21 @@ export class DefaultConfigurationExportHelper {
 
 	constructor(
 		@IEnvironmentService environmentService: IEnvironmentService,
-		@IExtensionService private extensionService: IExtensionService,
-		@ICommandService private commandService: ICommandService) {
+		@IExtensionService private readonly extensionService: IExtensionService,
+		@ICommandService private readonly commandService: ICommandService) {
 		if (environmentService.args['export-default-configuration']) {
 			this.writeConfigModelAndQuit(environmentService.args['export-default-configuration']);
 		}
 	}
 
-	private writeConfigModelAndQuit(targetPath: string): TPromise<void> {
-		return this.extensionService.whenInstalledExtensionsRegistered()
+	private writeConfigModelAndQuit(targetPath: string): Promise<void> {
+		return Promise.resolve(this.extensionService.whenInstalledExtensionsRegistered())
 			.then(() => this.writeConfigModel(targetPath))
 			.then(() => this.commandService.executeCommand('workbench.action.quit'))
 			.then(() => { });
 	}
 
-	private writeConfigModel(targetPath: string): TPromise<void> {
+	private writeConfigModel(targetPath: string): Promise<void> {
 		const config = this.getConfigModel();
 
 		const resultString = JSON.stringify(config, undefined, '  ');
@@ -727,7 +713,7 @@ export class DefaultConfigurationExportHelper {
 		const processProperty = (name: string, prop: IConfigurationPropertySchema) => {
 			const propDetails: IExportedConfigurationNode = {
 				name,
-				description: prop.description,
+				description: prop.description || prop.markdownDescription || '',
 				default: prop.default,
 				type: prop.type
 			};
@@ -736,8 +722,8 @@ export class DefaultConfigurationExportHelper {
 				propDetails.enum = prop.enum;
 			}
 
-			if (prop.enumDescriptions) {
-				propDetails.enumDescriptions = prop.enumDescriptions;
+			if (prop.enumDescriptions || prop.markdownEnumDescriptions) {
+				propDetails.enumDescriptions = prop.enumDescriptions || prop.markdownEnumDescriptions;
 			}
 
 			settings.push(propDetails);

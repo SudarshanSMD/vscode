@@ -2,19 +2,18 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import * as path from 'path';
+import * as fs from 'fs';
 import * as nls from 'vscode-nls';
 const localize = nls.loadMessageBundle();
 
-import { languages, ExtensionContext, IndentAction, Position, TextDocument, Range, CompletionItem, CompletionItemKind, SnippetString, FoldingRangeKind, FoldingRange, FoldingContext } from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, RequestType, TextDocumentPositionParams, Disposable, CancellationToken } from 'vscode-languageclient';
+import { languages, ExtensionContext, IndentAction, Position, TextDocument, Range, CompletionItem, CompletionItemKind, SnippetString, workspace, SelectionRange, SelectionRangeKind } from 'vscode';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, RequestType, TextDocumentPositionParams } from 'vscode-languageclient';
 import { EMPTY_ELEMENTS } from './htmlEmptyTagsShared';
 import { activateTagClosing } from './tagClosing';
 import TelemetryReporter from 'vscode-extension-telemetry';
-
-import { FoldingRangeRequest, FoldingRangeRequestParam, FoldingRangeClientCapabilities, FoldingRangeKind as LSFoldingRangeKind } from 'vscode-languageserver-protocol-foldingprovider';
+import { getCustomDataPathsInAllWorkspaces, getCustomDataPathsFromAllExtensions } from './customData';
 
 namespace TagCloseRequest {
 	export const type: RequestType<TextDocumentPositionParams, string, any, any> = new RequestType('html/tag');
@@ -35,8 +34,9 @@ export function activate(context: ExtensionContext) {
 	let packageInfo = getPackageInfo(context);
 	telemetryReporter = packageInfo && new TelemetryReporter(packageInfo.name, packageInfo.version, packageInfo.aiKey);
 
-	// The server is implemented in node
-	let serverModule = context.asAbsolutePath(path.join('server', 'out', 'htmlServerMain.js'));
+	let serverMain = readJSONFile(context.asAbsolutePath('./server/package.json')).main;
+	let serverModule = context.asAbsolutePath(path.join('server', serverMain));
+
 	// The debug options for the server
 	let debugOptions = { execArgv: ['--nolazy', '--inspect=6045'] };
 
@@ -47,8 +47,13 @@ export function activate(context: ExtensionContext) {
 		debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
 	};
 
-	let documentSelector = ['html', 'handlebars', 'razor'];
+	let documentSelector = ['html', 'handlebars'];
 	let embeddedLanguages = { css: true, javascript: true };
+
+	let dataPaths = [
+		...getCustomDataPathsInAllWorkspaces(workspace.workspaceFolders),
+		...getCustomDataPathsFromAllExtensions()
+	];
 
 	// Options to control the language client
 	let clientOptions: LanguageClientOptions = {
@@ -57,28 +62,14 @@ export function activate(context: ExtensionContext) {
 			configurationSection: ['html', 'css', 'javascript'], // the settings to synchronize
 		},
 		initializationOptions: {
-			embeddedLanguages
+			embeddedLanguages,
+			dataPaths
 		}
 	};
 
 	// Create the language client and start the client.
 	let client = new LanguageClient('html', localize('htmlserver.name', 'HTML Language Server'), serverOptions, clientOptions);
 	client.registerProposedFeatures();
-	client.registerFeature({
-		fillClientCapabilities(capabilities: FoldingRangeClientCapabilities): void {
-			let textDocumentCap = capabilities.textDocument;
-			if (!textDocumentCap) {
-				textDocumentCap = capabilities.textDocument = {};
-			}
-			textDocumentCap.foldingRange = {
-				dynamicRegistration: false,
-				rangeLimit: 5000,
-				lineFoldingOnly: true
-			};
-		},
-		initialize(capabilities, documentSelector): void {
-		}
-	});
 
 	let disposable = client.start();
 	toDispose.push(disposable);
@@ -87,7 +78,7 @@ export function activate(context: ExtensionContext) {
 			let param = client.code2ProtocolConverter.asTextDocumentPositionParams(document, position);
 			return client.sendRequest(TagCloseRequest.type, param);
 		};
-		disposable = activateTagClosing(tagRequestor, { html: true, handlebars: true, razor: true }, 'html.autoClosingTags');
+		disposable = activateTagClosing(tagRequestor, { html: true, handlebars: true }, 'html.autoClosingTags');
 		toDispose.push(disposable);
 
 		disposable = client.onTelemetry(e => {
@@ -96,7 +87,26 @@ export function activate(context: ExtensionContext) {
 			}
 		});
 		toDispose.push(disposable);
-		toDispose.push(initFoldingProvider());
+
+		documentSelector.forEach(selector => {
+			context.subscriptions.push(languages.registerSelectionRangeProvider(selector, {
+				async provideSelectionRanges(document: TextDocument, positions: Position[]): Promise<SelectionRange[][]> {
+					const textDocument = client.code2ProtocolConverter.asTextDocumentIdentifier(document);
+					return Promise.all(positions.map(async position => {
+						const rawRanges = await client.sendRequest<Range[]>('$/textDocument/selectionRange', { textDocument, position });
+						if (Array.isArray(rawRanges)) {
+							return rawRanges.map(r => {
+								return {
+									range: client.protocol2CodeConverter.asRange(r),
+									kind: SelectionRangeKind.Declaration
+								};
+							});
+						}
+						return [];
+					}));
+				}
+			}));
+		});
 	});
 
 	languages.setLanguageConfiguration('html', {
@@ -120,21 +130,6 @@ export function activate(context: ExtensionContext) {
 
 	languages.setLanguageConfiguration('handlebars', {
 		wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\$\^\&\*\(\)\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\s]+)/g,
-		onEnterRules: [
-			{
-				beforeText: new RegExp(`<(?!(?:${EMPTY_ELEMENTS.join('|')}))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!/)>)[^<]*$`, 'i'),
-				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>/i,
-				action: { indentAction: IndentAction.IndentOutdent }
-			},
-			{
-				beforeText: new RegExp(`<(?!(?:${EMPTY_ELEMENTS.join('|')}))(\\w[\\w\\d]*)([^/>]*(?!/)>)[^<]*$`, 'i'),
-				action: { indentAction: IndentAction.Indent }
-			}
-		],
-	});
-
-	languages.setLanguageConfiguration('razor', {
-		wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\$\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\s]+)/g,
 		onEnterRules: [
 			{
 				beforeText: new RegExp(`<(?!(?:${EMPTY_ELEMENTS.join('|')}))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!/)>)[^<]*$`, 'i'),
@@ -172,42 +167,10 @@ export function activate(context: ExtensionContext) {
 			return null;
 		}
 	});
-
-	function initFoldingProvider(): Disposable {
-		function getKind(kind: string | undefined): FoldingRangeKind | undefined {
-			if (kind) {
-				switch (kind) {
-					case LSFoldingRangeKind.Comment:
-						return FoldingRangeKind.Comment;
-					case LSFoldingRangeKind.Imports:
-						return FoldingRangeKind.Imports;
-					case LSFoldingRangeKind.Region:
-						return FoldingRangeKind.Region;
-				}
-			}
-			return void 0;
-		}
-		return languages.registerFoldingRangeProvider('html', {
-			provideFoldingRanges(document: TextDocument, context: FoldingContext, token: CancellationToken) {
-				const param: FoldingRangeRequestParam = {
-					textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(document)
-				};
-				return client.sendRequest(FoldingRangeRequest.type, param, token).then(ranges => {
-					if (Array.isArray(ranges)) {
-						return ranges.map(r => new FoldingRange(r.startLine, r.endLine, getKind(r.kind)));
-					}
-					return null;
-				}, error => {
-					client.logFailedRequest(FoldingRangeRequest.type, error);
-					return null;
-				});
-			}
-		});
-	}
 }
 
 function getPackageInfo(context: ExtensionContext): IPackageInfo | null {
-	let extensionPackage = require(context.asAbsolutePath('./package.json'));
+	let extensionPackage = readJSONFile(context.asAbsolutePath('./package.json'));
 	if (extensionPackage) {
 		return {
 			name: extensionPackage.name,
@@ -216,6 +179,16 @@ function getPackageInfo(context: ExtensionContext): IPackageInfo | null {
 		};
 	}
 	return null;
+}
+
+
+function readJSONFile(location: string) {
+	try {
+		return JSON.parse(fs.readFileSync(location).toString());
+	} catch (e) {
+		console.log(`Problems reading ${location}: ${e}`);
+		return {};
+	}
 }
 
 export function deactivate(): Promise<any> {

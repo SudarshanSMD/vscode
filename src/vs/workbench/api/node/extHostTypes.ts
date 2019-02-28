@@ -2,26 +2,38 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import * as crypto from 'crypto';
-
-import URI from 'vs/base/common/uri';
+import { coalesce, equals } from 'vs/base/common/arrays';
 import { illegalArgument } from 'vs/base/common/errors';
-import * as vscode from 'vscode';
-import { isMarkdownString } from 'vs/base/common/htmlContent';
 import { IRelativePattern } from 'vs/base/common/glob';
-import { relative } from 'path';
-import { startsWith } from 'vs/base/common/strings';
+import { isMarkdownString } from 'vs/base/common/htmlContent';
 import { values } from 'vs/base/common/map';
-import { coalesce } from 'vs/base/common/arrays';
+import { startsWith } from 'vs/base/common/strings';
+import { URI } from 'vs/base/common/uri';
+import { generateUuid } from 'vs/base/common/uuid';
+import * as vscode from 'vscode';
 
+
+function es5ClassCompat(target: Function): any {
+	///@ts-ignore
+	function _() { return Reflect.construct(target, arguments, this.constructor); }
+	Object.defineProperty(_, 'name', Object.getOwnPropertyDescriptor(target, 'name')!);
+	///@ts-ignore
+	Object.setPrototypeOf(_, target);
+	///@ts-ignore
+	Object.setPrototypeOf(_.prototype, target.prototype);
+	return _;
+}
+
+@es5ClassCompat
 export class Disposable {
 
-	static from(...disposables: { dispose(): any }[]): Disposable {
+	static from(...inDisposables: { dispose(): any }[]): Disposable {
+		let disposables: ReadonlyArray<{ dispose(): any }> | undefined = inDisposables;
 		return new Disposable(function () {
 			if (disposables) {
-				for (let disposable of disposables) {
+				for (const disposable of disposables) {
 					if (disposable && typeof disposable.dispose === 'function') {
 						disposable.dispose();
 					}
@@ -31,9 +43,9 @@ export class Disposable {
 		});
 	}
 
-	private _callOnDispose: Function;
+	private _callOnDispose?: () => any;
 
-	constructor(callOnDispose: Function) {
+	constructor(callOnDispose: () => any) {
 		this._callOnDispose = callOnDispose;
 	}
 
@@ -45,12 +57,17 @@ export class Disposable {
 	}
 }
 
+@es5ClassCompat
 export class Position {
 
 	static Min(...positions: Position[]): Position {
-		let result = positions.pop();
-		for (let p of positions) {
-			if (p.isBefore(result)) {
+		if (positions.length === 0) {
+			throw new TypeError();
+		}
+		let result = positions[0];
+		for (let i = 1; i < positions.length; i++) {
+			let p = positions[i];
+			if (p.isBefore(result!)) {
 				result = p;
 			}
 		}
@@ -58,9 +75,13 @@ export class Position {
 	}
 
 	static Max(...positions: Position[]): Position {
-		let result = positions.pop();
-		for (let p of positions) {
-			if (p.isAfter(result)) {
+		if (positions.length === 0) {
+			throw new TypeError();
+		}
+		let result = positions[0];
+		for (let i = 1; i < positions.length; i++) {
+			let p = positions[i];
+			if (p.isAfter(result!)) {
 				result = p;
 			}
 		}
@@ -155,7 +176,7 @@ export class Position {
 
 	translate(change: { lineDelta?: number; characterDelta?: number; }): Position;
 	translate(lineDelta?: number, characterDelta?: number): Position;
-	translate(lineDeltaOrChange: number | { lineDelta?: number; characterDelta?: number; }, characterDelta: number = 0): Position {
+	translate(lineDeltaOrChange: number | undefined | { lineDelta?: number; characterDelta?: number; }, characterDelta: number = 0): Position {
 
 		if (lineDeltaOrChange === null || characterDelta === null) {
 			throw illegalArgument();
@@ -179,7 +200,7 @@ export class Position {
 
 	with(change: { line?: number; character?: number; }): Position;
 	with(line?: number, character?: number): Position;
-	with(lineOrChange: number | { line?: number; character?: number; }, character: number = this.character): Position {
+	with(lineOrChange: number | undefined | { line?: number; character?: number; }, character: number = this.character): Position {
 
 		if (lineOrChange === null || character === null) {
 			throw illegalArgument();
@@ -208,6 +229,7 @@ export class Position {
 	}
 }
 
+@es5ClassCompat
 export class Range {
 
 	static isRange(thing: any): thing is vscode.Range {
@@ -235,8 +257,8 @@ export class Range {
 	constructor(start: Position, end: Position);
 	constructor(startLine: number, startColumn: number, endLine: number, endColumn: number);
 	constructor(startLineOrStart: number | Position, startColumnOrEnd: number | Position, endLine?: number, endColumn?: number) {
-		let start: Position;
-		let end: Position;
+		let start: Position | undefined;
+		let end: Position | undefined;
 
 		if (typeof startLineOrStart === 'number' && typeof startColumnOrEnd === 'number' && typeof endLine === 'number' && typeof endColumn === 'number') {
 			start = new Position(startLineOrStart, startColumnOrEnd);
@@ -280,7 +302,7 @@ export class Range {
 		return this._start.isEqual(other._start) && this._end.isEqual(other._end);
 	}
 
-	intersection(other: Range): Range {
+	intersection(other: Range): Range | undefined {
 		let start = Position.Max(other.start, this._start);
 		let end = Position.Min(other.end, this._end);
 		if (start.isAfter(end)) {
@@ -313,7 +335,7 @@ export class Range {
 
 	with(change: { start?: Position, end?: Position }): Range;
 	with(start?: Position, end?: Position): Range;
-	with(startOrChange: Position | { start?: Position, end?: Position }, end: Position = this.end): Range {
+	with(startOrChange: Position | undefined | { start?: Position, end?: Position }, end: Position = this.end): Range {
 
 		if (startOrChange === null || end === null) {
 			throw illegalArgument();
@@ -342,6 +364,7 @@ export class Range {
 	}
 }
 
+@es5ClassCompat
 export class Selection extends Range {
 
 	static isSelection(thing: any): thing is Selection {
@@ -372,8 +395,8 @@ export class Selection extends Range {
 	constructor(anchor: Position, active: Position);
 	constructor(anchorLine: number, anchorColumn: number, activeLine: number, activeColumn: number);
 	constructor(anchorLineOrAnchor: number | Position, anchorColumnOrActive: number | Position, activeLine?: number, activeColumn?: number) {
-		let anchor: Position;
-		let active: Position;
+		let anchor: Position | undefined;
+		let active: Position | undefined;
 
 		if (typeof anchorLineOrAnchor === 'number' && typeof anchorColumnOrActive === 'number' && typeof activeLine === 'number' && typeof activeColumn === 'number') {
 			anchor = new Position(anchorLineOrAnchor, anchorColumnOrActive);
@@ -407,11 +430,30 @@ export class Selection extends Range {
 	}
 }
 
+export class ResolvedAuthority {
+	readonly host: string;
+	readonly port: number;
+	debugListenPort?: number;
+	debugConnectPort?: number;
+
+	constructor(host: string, port: number) {
+		if (typeof host !== 'string' || host.length === 0) {
+			throw illegalArgument('host');
+		}
+		if (typeof port !== 'number' || port === 0 || Math.round(port) !== port) {
+			throw illegalArgument('port');
+		}
+		this.host = host;
+		this.port = Math.round(port);
+	}
+}
+
 export enum EndOfLine {
 	LF = 1,
 	CRLF = 2
 }
 
+@es5ClassCompat
 export class TextEdit {
 
 	static isTextEdit(thing: any): thing is TextEdit {
@@ -438,7 +480,7 @@ export class TextEdit {
 	}
 
 	static setEndOfLine(eol: EndOfLine): TextEdit {
-		let ret = new TextEdit(undefined, undefined);
+		let ret = new TextEdit(new Range(new Position(0, 0), new Position(0, 0)), '');
 		ret.newEol = eol;
 		return ret;
 	}
@@ -498,13 +540,14 @@ export class TextEdit {
 export interface IFileOperationOptions {
 	overwrite?: boolean;
 	ignoreIfExists?: boolean;
+	ignoreIfNotExists?: boolean;
 	recursive?: boolean;
 }
 
 export interface IFileOperation {
 	_type: 1;
-	from: URI;
-	to: URI;
+	from?: URI;
+	to?: URI;
 	options?: IFileOperationOptions;
 }
 
@@ -514,11 +557,12 @@ export interface IFileTextEdit {
 	edit: TextEdit;
 }
 
+@es5ClassCompat
 export class WorkspaceEdit implements vscode.WorkspaceEdit {
 
 	private _edits = new Array<IFileOperation | IFileTextEdit>();
 
-	renameFile(from: vscode.Uri, to: vscode.Uri, options?: { overwrite?: boolean }): void {
+	renameFile(from: vscode.Uri, to: vscode.Uri, options?: { overwrite?: boolean, ignoreIfExists?: boolean }): void {
 		this._edits.push({ _type: 1, from, to, options });
 	}
 
@@ -526,7 +570,7 @@ export class WorkspaceEdit implements vscode.WorkspaceEdit {
 		this._edits.push({ _type: 1, from: undefined, to: uri, options });
 	}
 
-	deleteFile(uri: vscode.Uri, options?: { recursive?: boolean }): void {
+	deleteFile(uri: vscode.Uri, options?: { recursive?: boolean, ignoreIfNotExists?: boolean }): void {
 		this._edits.push({ _type: 1, from: uri, to: undefined, options });
 	}
 
@@ -557,7 +601,7 @@ export class WorkspaceEdit implements vscode.WorkspaceEdit {
 			for (let i = 0; i < this._edits.length; i++) {
 				const element = this._edits[i];
 				if (element._type === 2 && element.uri.toString() === uri.toString()) {
-					this._edits[i] = undefined;
+					this._edits[i] = undefined!; // will be coalesced down below
 				}
 			}
 			this._edits = coalesce(this._edits);
@@ -578,9 +622,6 @@ export class WorkspaceEdit implements vscode.WorkspaceEdit {
 				res.push(candidate.edit);
 			}
 		}
-		if (res.length === 0) {
-			return undefined;
-		}
 		return res;
 	}
 
@@ -599,8 +640,8 @@ export class WorkspaceEdit implements vscode.WorkspaceEdit {
 		return values(textEdits);
 	}
 
-	_allEntries(): ([URI, TextEdit[]] | [URI, URI, IFileOperationOptions])[] {
-		let res: ([URI, TextEdit[]] | [URI, URI, IFileOperationOptions])[] = [];
+	_allEntries(): ([URI, TextEdit[]] | [URI?, URI?, IFileOperationOptions?])[] {
+		let res: ([URI, TextEdit[]] | [URI?, URI?, IFileOperationOptions?])[] = [];
 		for (let edit of this._edits) {
 			if (edit._type === 1) {
 				res.push([edit.from, edit.to, edit.options]);
@@ -620,6 +661,7 @@ export class WorkspaceEdit implements vscode.WorkspaceEdit {
 	}
 }
 
+@es5ClassCompat
 export class SnippetString {
 
 	static isSnippetString(thing: any): thing is SnippetString {
@@ -713,6 +755,7 @@ export enum DiagnosticSeverity {
 	Error = 0
 }
 
+@es5ClassCompat
 export class Location {
 
 	static isLocation(thing: any): thing is Location {
@@ -751,6 +794,7 @@ export class Location {
 	}
 }
 
+@es5ClassCompat
 export class DiagnosticRelatedInformation {
 
 	static is(thing: any): thing is DiagnosticRelatedInformation {
@@ -770,8 +814,21 @@ export class DiagnosticRelatedInformation {
 		this.location = location;
 		this.message = message;
 	}
+
+	static isEqual(a: DiagnosticRelatedInformation, b: DiagnosticRelatedInformation): boolean {
+		if (a === b) {
+			return true;
+		}
+		if (!a || !b) {
+			return false;
+		}
+		return a.message === b.message
+			&& a.location.range.isEqual(b.location.range)
+			&& a.location.uri.toString() === b.location.uri.toString();
+	}
 }
 
+@es5ClassCompat
 export class Diagnostic {
 
 	range: Range;
@@ -797,12 +854,30 @@ export class Diagnostic {
 			code: this.code,
 		};
 	}
+
+	static isEqual(a: Diagnostic | undefined, b: Diagnostic | undefined): boolean {
+		if (a === b) {
+			return true;
+		}
+		if (!a || !b) {
+			return false;
+		}
+		return a.message === b.message
+			&& a.severity === b.severity
+			&& a.code === b.code
+			&& a.severity === b.severity
+			&& a.source === b.source
+			&& a.range.isEqual(b.range)
+			&& equals(a.tags, b.tags)
+			&& equals(a.relatedInformation, b.relatedInformation, DiagnosticRelatedInformation.isEqual);
+	}
 }
 
+@es5ClassCompat
 export class Hover {
 
 	public contents: vscode.MarkdownString[] | vscode.MarkedString[];
-	public range: Range;
+	public range: Range | undefined;
 
 	constructor(
 		contents: vscode.MarkdownString | vscode.MarkedString | vscode.MarkdownString[] | vscode.MarkedString[],
@@ -828,6 +903,7 @@ export enum DocumentHighlightKind {
 	Write = 2
 }
 
+@es5ClassCompat
 export class DocumentHighlight {
 
 	range: Range;
@@ -875,16 +951,23 @@ export enum SymbolKind {
 	TypeParameter = 25
 }
 
+@es5ClassCompat
 export class SymbolInformation {
+
+	static validate(candidate: SymbolInformation): void {
+		if (!candidate.name) {
+			throw new Error('name must not be falsy');
+		}
+	}
 
 	name: string;
 	location: Location;
 	kind: SymbolKind;
-	containerName: string;
+	containerName: string | undefined;
 
-	constructor(name: string, kind: SymbolKind, containerName: string, location: Location);
+	constructor(name: string, kind: SymbolKind, containerName: string | undefined, location: Location);
 	constructor(name: string, kind: SymbolKind, range: Range, uri?: URI, containerName?: string);
-	constructor(name: string, kind: SymbolKind, rangeOrContainer: string | Range, locationOrUri?: Location | URI, containerName?: string) {
+	constructor(name: string, kind: SymbolKind, rangeOrContainer: string | undefined | Range, locationOrUri?: Location | URI, containerName?: string) {
 		this.name = name;
 		this.kind = kind;
 		this.containerName = containerName;
@@ -896,8 +979,10 @@ export class SymbolInformation {
 		if (locationOrUri instanceof Location) {
 			this.location = locationOrUri;
 		} else if (rangeOrContainer instanceof Range) {
-			this.location = new Location(locationOrUri, rangeOrContainer);
+			this.location = new Location(locationOrUri!, rangeOrContainer);
 		}
+
+		SymbolInformation.validate(this);
 	}
 
 	toJSON(): any {
@@ -910,7 +995,21 @@ export class SymbolInformation {
 	}
 }
 
+@es5ClassCompat
 export class DocumentSymbol {
+
+	static validate(candidate: DocumentSymbol): void {
+		if (!candidate.name) {
+			throw new Error('name must not be falsy');
+		}
+		if (!candidate.range.contains(candidate.selectionRange)) {
+			throw new Error('selectionRange must be contained in fullRange');
+		}
+		if (candidate.children) {
+			candidate.children.forEach(DocumentSymbol.validate);
+		}
+	}
+
 	name: string;
 	detail: string;
 	kind: SymbolKind;
@@ -926,9 +1025,7 @@ export class DocumentSymbol {
 		this.selectionRange = selectionRange;
 		this.children = [];
 
-		if (!this.range.contains(this.selectionRange)) {
-			throw new Error('selectionRange must be contained in fullRange');
-		}
+		DocumentSymbol.validate(this);
 	}
 }
 
@@ -938,6 +1035,7 @@ export enum CodeActionTrigger {
 	Manual = 2,
 }
 
+@es5ClassCompat
 export class CodeAction {
 	title: string;
 
@@ -945,7 +1043,7 @@ export class CodeAction {
 
 	edit?: WorkspaceEdit;
 
-	dianostics?: Diagnostic[];
+	diagnostics?: Diagnostic[];
 
 	kind?: CodeActionKind;
 
@@ -956,17 +1054,19 @@ export class CodeAction {
 }
 
 
+@es5ClassCompat
 export class CodeActionKind {
 	private static readonly sep = '.';
 
-	public static readonly Empty = new CodeActionKind('');
-	public static readonly QuickFix = CodeActionKind.Empty.append('quickfix');
-	public static readonly Refactor = CodeActionKind.Empty.append('refactor');
-	public static readonly RefactorExtract = CodeActionKind.Refactor.append('extract');
-	public static readonly RefactorInline = CodeActionKind.Refactor.append('inline');
-	public static readonly RefactorRewrite = CodeActionKind.Refactor.append('rewrite');
-	public static readonly Source = CodeActionKind.Empty.append('source');
-	public static readonly SourceOrganizeImports = CodeActionKind.Source.append('organizeImports');
+	public static Empty;
+	public static QuickFix;
+	public static Refactor;
+	public static RefactorExtract;
+	public static RefactorInline;
+	public static RefactorRewrite;
+	public static Source;
+	public static SourceOrganizeImports;
+	public static SourceFixAll;
 
 	constructor(
 		public readonly value: string
@@ -976,17 +1076,63 @@ export class CodeActionKind {
 		return new CodeActionKind(this.value ? this.value + CodeActionKind.sep + parts : parts);
 	}
 
+	public intersects(other: CodeActionKind): boolean {
+		return this.contains(other) || other.contains(this);
+	}
+
 	public contains(other: CodeActionKind): boolean {
 		return this.value === other.value || startsWith(other.value, this.value + CodeActionKind.sep);
 	}
 }
+CodeActionKind.Empty = new CodeActionKind('');
+CodeActionKind.QuickFix = CodeActionKind.Empty.append('quickfix');
+CodeActionKind.Refactor = CodeActionKind.Empty.append('refactor');
+CodeActionKind.RefactorExtract = CodeActionKind.Refactor.append('extract');
+CodeActionKind.RefactorInline = CodeActionKind.Refactor.append('inline');
+CodeActionKind.RefactorRewrite = CodeActionKind.Refactor.append('rewrite');
+CodeActionKind.Source = CodeActionKind.Empty.append('source');
+CodeActionKind.SourceOrganizeImports = CodeActionKind.Source.append('organizeImports');
+CodeActionKind.SourceFixAll = CodeActionKind.Source.append('fixAll');
+
+@es5ClassCompat
+export class SelectionRangeKind {
+
+	private static readonly _sep = '.';
+
+	static readonly Empty = new SelectionRangeKind('');
+	static readonly Statement = SelectionRangeKind.Empty.append('statement');
+	static readonly Declaration = SelectionRangeKind.Empty.append('declaration');
+
+	readonly value: string;
+
+	constructor(value: string) {
+		this.value = value;
+	}
+
+	append(value: string): SelectionRangeKind {
+		return new SelectionRangeKind(this.value ? this.value + SelectionRangeKind._sep + value : value);
+	}
+}
+
+@es5ClassCompat
+export class SelectionRange {
+
+	kind: SelectionRangeKind;
+	range: Range;
+
+	constructor(range: Range, kind: SelectionRangeKind, ) {
+		this.range = range;
+		this.kind = kind;
+	}
+}
 
 
+@es5ClassCompat
 export class CodeLens {
 
 	range: Range;
 
-	command: vscode.Command;
+	command: vscode.Command | undefined;
 
 	constructor(range: Range, command?: vscode.Command) {
 		this.range = range;
@@ -998,6 +1144,20 @@ export class CodeLens {
 	}
 }
 
+
+export class CodeInset {
+
+	range: Range;
+	height?: number;
+
+	constructor(range: Range, height?: number) {
+		this.range = range;
+		this.height = height;
+	}
+}
+
+
+@es5ClassCompat
 export class MarkdownString {
 
 	value: string;
@@ -1028,17 +1188,19 @@ export class MarkdownString {
 	}
 }
 
+@es5ClassCompat
 export class ParameterInformation {
 
-	label: string;
+	label: string | [number, number];
 	documentation?: string | MarkdownString;
 
-	constructor(label: string, documentation?: string | MarkdownString) {
+	constructor(label: string | [number, number], documentation?: string | MarkdownString) {
 		this.label = label;
 		this.documentation = documentation;
 	}
 }
 
+@es5ClassCompat
 export class SignatureInformation {
 
 	label: string;
@@ -1052,6 +1214,7 @@ export class SignatureInformation {
 	}
 }
 
+@es5ClassCompat
 export class SignatureHelp {
 
 	signatures: SignatureInformation[];
@@ -1063,6 +1226,12 @@ export class SignatureHelp {
 	}
 }
 
+export enum SignatureHelpTriggerKind {
+	Invoke = 1,
+	TriggerCharacter = 2,
+	ContentChange = 3,
+}
+
 export enum CompletionTriggerKind {
 	Invoke = 0,
 	TriggerCharacter = 1,
@@ -1070,8 +1239,8 @@ export enum CompletionTriggerKind {
 }
 
 export interface CompletionContext {
-	triggerKind: CompletionTriggerKind;
-	triggerCharacter: string;
+	readonly triggerKind: CompletionTriggerKind;
+	readonly triggerCharacter?: string;
 }
 
 export enum CompletionItemKind {
@@ -1102,17 +1271,20 @@ export enum CompletionItemKind {
 	TypeParameter = 24
 }
 
+@es5ClassCompat
 export class CompletionItem implements vscode.CompletionItem {
 
 	label: string;
-	kind: CompletionItemKind;
-	detail: string;
-	documentation: string | MarkdownString;
-	sortText: string;
-	filterText: string;
-	preselect: boolean;
+	kind: CompletionItemKind | undefined;
+	detail?: string;
+	documentation?: string | MarkdownString;
+	sortText?: string;
+	filterText?: string;
+	preselect?: boolean;
 	insertText: string | SnippetString;
+	keepWhitespace?: boolean;
 	range: Range;
+	commitCharacters?: string[];
 	textEdit: TextEdit;
 	additionalTextEdits: TextEdit[];
 	command: vscode.Command;
@@ -1125,7 +1297,7 @@ export class CompletionItem implements vscode.CompletionItem {
 	toJSON(): any {
 		return {
 			label: this.label,
-			kind: CompletionItemKind[this.kind],
+			kind: this.kind && CompletionItemKind[this.kind],
 			detail: this.detail,
 			documentation: this.documentation,
 			sortText: this.sortText,
@@ -1137,6 +1309,7 @@ export class CompletionItem implements vscode.CompletionItem {
 	}
 }
 
+@es5ClassCompat
 export class CompletionList {
 
 	isIncomplete?: boolean;
@@ -1216,7 +1389,7 @@ export enum DecorationRangeBehavior {
 }
 
 export namespace TextEditorSelectionChangeKind {
-	export function fromValue(s: string) {
+	export function fromValue(s: string | undefined) {
 		switch (s) {
 			case 'keyboard': return TextEditorSelectionChangeKind.Keyboard;
 			case 'mouse': return TextEditorSelectionChangeKind.Mouse;
@@ -1226,13 +1399,14 @@ export namespace TextEditorSelectionChangeKind {
 	}
 }
 
+@es5ClassCompat
 export class DocumentLink {
 
 	range: Range;
 
-	target: URI;
+	target?: URI;
 
-	constructor(range: Range, target: URI) {
+	constructor(range: Range, target: URI | undefined) {
 		if (target && !(target instanceof URI)) {
 			throw illegalArgument('target');
 		}
@@ -1244,6 +1418,7 @@ export class DocumentLink {
 	}
 }
 
+@es5ClassCompat
 export class Color {
 	readonly red: number;
 	readonly green: number;
@@ -1260,6 +1435,7 @@ export class Color {
 
 export type IColorFormat = string | { opaque: string, transparent: string };
 
+@es5ClassCompat
 export class ColorInformation {
 	range: Range;
 
@@ -1277,6 +1453,7 @@ export class ColorInformation {
 	}
 }
 
+@es5ClassCompat
 export class ColorPresentation {
 	label: string;
 	textEdit?: TextEdit;
@@ -1318,6 +1495,7 @@ export enum TaskPanelKind {
 	New = 3
 }
 
+@es5ClassCompat
 export class TaskGroup implements vscode.TaskGroup {
 
 	private _id: string;
@@ -1360,11 +1538,12 @@ export class TaskGroup implements vscode.TaskGroup {
 	}
 }
 
+@es5ClassCompat
 export class ProcessExecution implements vscode.ProcessExecution {
 
 	private _process: string;
 	private _args: string[];
-	private _options: vscode.ProcessExecutionOptions;
+	private _options: vscode.ProcessExecutionOptions | undefined;
 
 	constructor(process: string, options?: vscode.ProcessExecutionOptions);
 	constructor(process: string, args: string[], options?: vscode.ProcessExecutionOptions);
@@ -1373,7 +1552,7 @@ export class ProcessExecution implements vscode.ProcessExecution {
 			throw illegalArgument('process');
 		}
 		this._process = process;
-		if (varg1 !== void 0) {
+		if (varg1 !== undefined) {
 			if (Array.isArray(varg1)) {
 				this._args = varg1;
 				this._options = varg2;
@@ -1381,7 +1560,7 @@ export class ProcessExecution implements vscode.ProcessExecution {
 				this._options = varg1;
 			}
 		}
-		if (this._args === void 0) {
+		if (this._args === undefined) {
 			this._args = [];
 		}
 	}
@@ -1409,18 +1588,18 @@ export class ProcessExecution implements vscode.ProcessExecution {
 		this._args = value;
 	}
 
-	get options(): vscode.ProcessExecutionOptions {
+	get options(): vscode.ProcessExecutionOptions | undefined {
 		return this._options;
 	}
 
-	set options(value: vscode.ProcessExecutionOptions) {
+	set options(value: vscode.ProcessExecutionOptions | undefined) {
 		this._options = value;
 	}
 
 	public computeId(): string {
 		const hash = crypto.createHash('md5');
 		hash.update('process');
-		if (this._process !== void 0) {
+		if (this._process !== undefined) {
 			hash.update(this._process);
 		}
 		if (this._args && this._args.length > 0) {
@@ -1432,12 +1611,13 @@ export class ProcessExecution implements vscode.ProcessExecution {
 	}
 }
 
+@es5ClassCompat
 export class ShellExecution implements vscode.ShellExecution {
 
 	private _commandLine: string;
 	private _command: string | vscode.ShellQuotedString;
 	private _args: (string | vscode.ShellQuotedString)[];
-	private _options: vscode.ShellExecutionOptions;
+	private _options: vscode.ShellExecutionOptions | undefined;
 
 	constructor(commandLine: string, options?: vscode.ShellExecutionOptions);
 	constructor(command: string | vscode.ShellQuotedString, args: (string | vscode.ShellQuotedString)[], options?: vscode.ShellExecutionOptions);
@@ -1491,21 +1671,21 @@ export class ShellExecution implements vscode.ShellExecution {
 		this._args = value || [];
 	}
 
-	get options(): vscode.ShellExecutionOptions {
+	get options(): vscode.ShellExecutionOptions | undefined {
 		return this._options;
 	}
 
-	set options(value: vscode.ShellExecutionOptions) {
+	set options(value: vscode.ShellExecutionOptions | undefined) {
 		this._options = value;
 	}
 
 	public computeId(): string {
 		const hash = crypto.createHash('md5');
 		hash.update('shell');
-		if (this._commandLine !== void 0) {
+		if (this._commandLine !== undefined) {
 			hash.update(this._commandLine);
 		}
-		if (this._command !== void 0) {
+		if (this._command !== undefined) {
 			hash.update(typeof this._command === 'string' ? this._command : this._command.value);
 		}
 		if (this._args && this._args.length > 0) {
@@ -1528,20 +1708,26 @@ export enum TaskScope {
 	Workspace = 2
 }
 
+@es5ClassCompat
 export class Task implements vscode.Task {
 
-	private __id: string;
+	private static ProcessType: string = 'process';
+	private static ShellType: string = 'shell';
+	private static EmptyType: string = '$empty';
+
+	private __id: string | undefined;
 
 	private _definition: vscode.TaskDefinition;
-	private _scope: vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder;
+	private _scope: vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder | undefined;
 	private _name: string;
-	private _execution: ProcessExecution | ShellExecution;
+	private _execution: ProcessExecution | ShellExecution | undefined;
 	private _problemMatchers: string[];
 	private _hasDefinedMatchers: boolean;
 	private _isBackground: boolean;
 	private _source: string;
-	private _group: TaskGroup;
+	private _group: TaskGroup | undefined;
 	private _presentationOptions: vscode.TaskPresentationOptions;
+	private _runOptions: vscode.RunOptions;
 
 	constructor(definition: vscode.TaskDefinition, name: string, source: string, execution?: ProcessExecution | ShellExecution, problemMatchers?: string | string[]);
 	constructor(definition: vscode.TaskDefinition, scope: vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder, name: string, source: string, execution?: ProcessExecution | ShellExecution, problemMatchers?: string | string[]);
@@ -1577,32 +1763,42 @@ export class Task implements vscode.Task {
 			this._hasDefinedMatchers = false;
 		}
 		this._isBackground = false;
+		this._presentationOptions = Object.create(null);
+		this._runOptions = Object.create(null);
 	}
 
-	get _id(): string {
+	get _id(): string | undefined {
 		return this.__id;
 	}
 
-	set _id(value: string) {
+	set _id(value: string | undefined) {
 		this.__id = value;
 	}
 
 	private clear(): void {
-		if (this.__id === void 0) {
+		if (this.__id === undefined) {
 			return;
 		}
 		this.__id = undefined;
 		this._scope = undefined;
-		this._definition = undefined;
+		this.computeDefinitionBasedOnExecution();
+	}
+
+	private computeDefinitionBasedOnExecution(): void {
 		if (this._execution instanceof ProcessExecution) {
 			this._definition = {
-				type: 'process',
+				type: Task.ProcessType,
 				id: this._execution.computeId()
 			};
 		} else if (this._execution instanceof ShellExecution) {
 			this._definition = {
-				type: 'shell',
+				type: Task.ShellType,
 				id: this._execution.computeId()
+			};
+		} else {
+			this._definition = {
+				type: Task.EmptyType,
+				id: generateUuid()
 			};
 		}
 	}
@@ -1612,14 +1808,14 @@ export class Task implements vscode.Task {
 	}
 
 	set definition(value: vscode.TaskDefinition) {
-		if (value === void 0 || value === null) {
+		if (value === undefined || value === null) {
 			throw illegalArgument('Kind can\'t be undefined or null');
 		}
 		this.clear();
 		this._definition = value;
 	}
 
-	get scope(): vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder {
+	get scope(): vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder | undefined {
 		return this._scope;
 	}
 
@@ -1640,16 +1836,20 @@ export class Task implements vscode.Task {
 		this._name = value;
 	}
 
-	get execution(): ProcessExecution | ShellExecution {
+	get execution(): ProcessExecution | ShellExecution | undefined {
 		return this._execution;
 	}
 
-	set execution(value: ProcessExecution | ShellExecution) {
+	set execution(value: ProcessExecution | ShellExecution | undefined) {
 		if (value === null) {
 			value = undefined;
 		}
 		this.clear();
 		this._execution = value;
+		let type = this._definition.type;
+		if (Task.EmptyType === type || Task.ProcessType === type || Task.ShellType === type) {
+			this.computeDefinitionBasedOnExecution();
+		}
 	}
 
 	get problemMatchers(): string[] {
@@ -1658,13 +1858,15 @@ export class Task implements vscode.Task {
 
 	set problemMatchers(value: string[]) {
 		if (!Array.isArray(value)) {
+			this.clear();
 			this._problemMatchers = [];
 			this._hasDefinedMatchers = false;
 			return;
+		} else {
+			this.clear();
+			this._problemMatchers = value;
+			this._hasDefinedMatchers = true;
 		}
-		this.clear();
-		this._problemMatchers = value;
-		this._hasDefinedMatchers = true;
 	}
 
 	get hasDefinedMatchers(): boolean {
@@ -1695,14 +1897,13 @@ export class Task implements vscode.Task {
 		this._source = value;
 	}
 
-	get group(): TaskGroup {
+	get group(): TaskGroup | undefined {
 		return this._group;
 	}
 
-	set group(value: TaskGroup) {
-		if (value === void 0 || value === null) {
-			this._group = undefined;
-			return;
+	set group(value: TaskGroup | undefined) {
+		if (value === null) {
+			value = undefined;
 		}
 		this.clear();
 		this._group = value;
@@ -1713,11 +1914,23 @@ export class Task implements vscode.Task {
 	}
 
 	set presentationOptions(value: vscode.TaskPresentationOptions) {
-		if (value === null) {
-			value = undefined;
+		if (value === null || value === undefined) {
+			value = Object.create(null);
 		}
 		this.clear();
 		this._presentationOptions = value;
+	}
+
+	get runOptions(): vscode.RunOptions {
+		return this._runOptions;
+	}
+
+	set runOptions(value: vscode.RunOptions) {
+		if (value === null || value === undefined) {
+			value = Object.create(null);
+		}
+		this.clear();
+		this._runOptions = value;
 	}
 }
 
@@ -1728,18 +1941,19 @@ export enum ProgressLocation {
 	Notification = 15
 }
 
+@es5ClassCompat
 export class TreeItem {
 
-	label?: string;
+	label?: string | vscode.TreeItemLabel;
 	resourceUri?: URI;
 	iconPath?: string | URI | { light: string | URI; dark: string | URI };
 	command?: vscode.Command;
 	contextValue?: string;
 	tooltip?: string;
 
-	constructor(label: string, collapsibleState?: vscode.TreeItemCollapsibleState)
+	constructor(label: string | vscode.TreeItemLabel, collapsibleState?: vscode.TreeItemCollapsibleState)
 	constructor(resourceUri: URI, collapsibleState?: vscode.TreeItemCollapsibleState)
-	constructor(arg1: string | URI, public collapsibleState: vscode.TreeItemCollapsibleState = TreeItemCollapsibleState.None) {
+	constructor(arg1: string | vscode.TreeItemLabel | URI, public collapsibleState: vscode.TreeItemCollapsibleState = TreeItemCollapsibleState.None) {
 		if (arg1 instanceof URI) {
 			this.resourceUri = arg1;
 		} else {
@@ -1755,18 +1969,23 @@ export enum TreeItemCollapsibleState {
 	Expanded = 2
 }
 
+@es5ClassCompat
 export class ThemeIcon {
-	static readonly File = new ThemeIcon('file');
 
-	static readonly Folder = new ThemeIcon('folder');
+	static File: ThemeIcon;
+	static Folder: ThemeIcon;
 
 	readonly id: string;
 
-	private constructor(id: string) {
+	constructor(id: string) {
 		this.id = id;
 	}
 }
+ThemeIcon.File = new ThemeIcon('file');
+ThemeIcon.Folder = new ThemeIcon('folder');
 
+
+@es5ClassCompat
 export class ThemeColor {
 	id: string;
 	constructor(id: string) {
@@ -1782,8 +2001,11 @@ export enum ConfigurationTarget {
 	WorkspaceFolder = 3
 }
 
+@es5ClassCompat
 export class RelativePattern implements IRelativePattern {
 	base: string;
+	baseFolder?: URI;
+
 	pattern: string;
 
 	constructor(base: vscode.WorkspaceFolder | string, pattern: string) {
@@ -1797,16 +2019,21 @@ export class RelativePattern implements IRelativePattern {
 			throw illegalArgument('pattern');
 		}
 
-		this.base = typeof base === 'string' ? base : base.uri.fsPath;
-		this.pattern = pattern;
-	}
+		if (typeof base === 'string') {
+			this.base = base;
+		} else {
+			this.baseFolder = base.uri;
+			this.base = base.uri.fsPath;
+		}
 
-	public pathToRelative(from: string, to: string): string {
-		return relative(from, to);
+		this.pattern = pattern;
 	}
 }
 
+@es5ClassCompat
 export class Breakpoint {
+
+	private _id: string | undefined;
 
 	readonly enabled: boolean;
 	readonly condition?: string;
@@ -1825,8 +2052,16 @@ export class Breakpoint {
 			this.logMessage = logMessage;
 		}
 	}
+
+	get id(): string {
+		if (!this._id) {
+			this._id = generateUuid();
+		}
+		return this._id;
+	}
 }
 
+@es5ClassCompat
 export class SourceBreakpoint extends Breakpoint {
 	readonly location: Location;
 
@@ -1839,6 +2074,7 @@ export class SourceBreakpoint extends Breakpoint {
 	}
 }
 
+@es5ClassCompat
 export class FunctionBreakpoint extends Breakpoint {
 	readonly functionName: string;
 
@@ -1851,15 +2087,40 @@ export class FunctionBreakpoint extends Breakpoint {
 	}
 }
 
+@es5ClassCompat
 export class DebugAdapterExecutable implements vscode.DebugAdapterExecutable {
 	readonly command: string;
 	readonly args: string[];
+	readonly options?: vscode.DebugAdapterExecutableOptions;
 
-	constructor(command: string, args?: string[]) {
+	constructor(command: string, args: string[], options?: vscode.DebugAdapterExecutableOptions) {
 		this.command = command;
-		this.args = args;
+		this.args = args || [];
+		this.options = options;
 	}
 }
+
+@es5ClassCompat
+export class DebugAdapterServer implements vscode.DebugAdapterServer {
+	readonly port: number;
+	readonly host?: string;
+
+	constructor(port: number, host?: string) {
+		this.port = port;
+		this.host = host;
+	}
+}
+
+/*
+@es5ClassCompat
+export class DebugAdapterImplementation implements vscode.DebugAdapterImplementation {
+	readonly implementation: any;
+
+	constructor(transport: any) {
+		this.implementation = transport;
+	}
+}
+*/
 
 export enum LogLevel {
 	Trace = 1,
@@ -1879,6 +2140,7 @@ export enum FileChangeType {
 	Deleted = 3,
 }
 
+@es5ClassCompat
 export class FileSystemError extends Error {
 
 	static FileExists(messageOrUri?: string | URI): FileSystemError {
@@ -1921,6 +2183,7 @@ export class FileSystemError extends Error {
 
 //#region folding api
 
+@es5ClassCompat
 export class FoldingRange {
 
 	start: number;
@@ -1954,4 +2217,12 @@ export enum CommentThreadCollapsibleState {
 	 * Determines an item is expanded
 	 */
 	Expanded = 1
+}
+
+@es5ClassCompat
+export class QuickInputButtons {
+
+	static readonly Back: vscode.QuickInputButton = { iconPath: 'back.svg' };
+
+	private constructor() { }
 }

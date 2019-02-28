@@ -2,18 +2,16 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
-import { Event, Emitter } from 'vs/base/common/event';
-import URI, { UriComponents } from 'vs/base/common/uri';
+import { Emitter, Event } from 'vs/base/common/event';
 import { IDisposable, dispose } from 'vs/base/common/lifecycle';
-import * as TypeConverters from './extHostTypeConverters';
-import { TPromise } from 'vs/base/common/winjs.base';
-import * as vscode from 'vscode';
-import { MainContext, MainThreadDocumentsShape, ExtHostDocumentsShape, IMainContext } from './extHost.protocol';
-import { ExtHostDocumentData, setWordDefinitionFor } from './extHostDocumentData';
-import { ExtHostDocumentsAndEditors } from './extHostDocumentsAndEditors';
+import { URI, UriComponents } from 'vs/base/common/uri';
 import { IModelChangedEvent } from 'vs/editor/common/model/mirrorTextModel';
+import { ExtHostDocumentsShape, IMainContext, MainContext, MainThreadDocumentsShape } from 'vs/workbench/api/node/extHost.protocol';
+import { ExtHostDocumentData, setWordDefinitionFor } from 'vs/workbench/api/node/extHostDocumentData';
+import { ExtHostDocumentsAndEditors } from 'vs/workbench/api/node/extHostDocumentsAndEditors';
+import * as TypeConverters from 'vs/workbench/api/node/extHostTypeConverters';
+import * as vscode from 'vscode';
 
 export class ExtHostDocuments implements ExtHostDocumentsShape {
 
@@ -30,7 +28,7 @@ export class ExtHostDocuments implements ExtHostDocumentsShape {
 	private _toDispose: IDisposable[];
 	private _proxy: MainThreadDocumentsShape;
 	private _documentsAndEditors: ExtHostDocumentsAndEditors;
-	private _documentLoader = new Map<string, TPromise<ExtHostDocumentData>>();
+	private _documentLoader = new Map<string, Promise<ExtHostDocumentData>>();
 
 	constructor(mainContext: IMainContext, documentsAndEditors: ExtHostDocumentsAndEditors) {
 		this._proxy = mainContext.getProxy(MainContext.MainThreadDocuments);
@@ -58,7 +56,7 @@ export class ExtHostDocuments implements ExtHostDocumentsShape {
 		return this._documentsAndEditors.allDocuments();
 	}
 
-	public getDocumentData(resource: vscode.Uri): ExtHostDocumentData {
+	public getDocumentData(resource: vscode.Uri): ExtHostDocumentData | undefined {
 		if (!resource) {
 			return undefined;
 		}
@@ -69,11 +67,19 @@ export class ExtHostDocuments implements ExtHostDocumentsShape {
 		return undefined;
 	}
 
-	public ensureDocumentData(uri: URI): TPromise<ExtHostDocumentData> {
+	public getDocument(resource: vscode.Uri): vscode.TextDocument {
+		const data = this.getDocumentData(resource);
+		if (!data || !data.document) {
+			throw new Error('Unable to retrieve document from URI');
+		}
+		return data.document;
+	}
+
+	public ensureDocumentData(uri: URI): Promise<ExtHostDocumentData> {
 
 		let cached = this._documentsAndEditors.getDocument(uri.toString());
 		if (cached) {
-			return TPromise.as(cached);
+			return Promise.resolve(cached);
 		}
 
 		let promise = this._documentLoader.get(uri.toString());
@@ -83,7 +89,7 @@ export class ExtHostDocuments implements ExtHostDocumentsShape {
 				return this._documentsAndEditors.getDocument(uri.toString());
 			}, err => {
 				this._documentLoader.delete(uri.toString());
-				return TPromise.wrapError<ExtHostDocumentData>(err);
+				return Promise.reject(err);
 			});
 			this._documentLoader.set(uri.toString(), promise);
 		}
@@ -91,7 +97,7 @@ export class ExtHostDocuments implements ExtHostDocumentsShape {
 		return promise;
 	}
 
-	public createDocumentData(options?: { language?: string; content?: string }): TPromise<URI> {
+	public createDocumentData(options?: { language?: string; content?: string }): Promise<URI> {
 		return this._proxy.$tryCreateDocument(options).then(data => URI.revive(data));
 	}
 
@@ -145,7 +151,7 @@ export class ExtHostDocuments implements ExtHostDocumentsShape {
 		});
 	}
 
-	public setWordDefinitionFor(modeId: string, wordDefinition: RegExp): void {
+	public setWordDefinitionFor(modeId: string, wordDefinition: RegExp | undefined): void {
 		setWordDefinitionFor(modeId, wordDefinition);
 	}
 }

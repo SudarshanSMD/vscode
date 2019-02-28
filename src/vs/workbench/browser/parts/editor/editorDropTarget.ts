@@ -3,8 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import 'vs/css!./media/editordroptarget';
 import { LocalSelectionTransfer, DraggedEditorIdentifier, ResourcesDropHandler, DraggedEditorGroupIdentifier, DragAndDropObserver } from 'vs/workbench/browser/dnd';
 import { addDisposableListener, EventType, EventHelper, isAncestor, toggleClass, addClass, removeClass } from 'vs/base/browser/dom';
@@ -14,9 +12,10 @@ import { IThemeService } from 'vs/platform/theme/common/themeService';
 import { activeContrastBorder } from 'vs/platform/theme/common/colorRegistry';
 import { IEditorIdentifier, EditorInput, EditorOptions } from 'vs/workbench/common/editor';
 import { isMacintosh } from 'vs/base/common/platform';
-import { GroupDirection, MergeGroupMode } from 'vs/workbench/services/group/common/editorGroupsService';
+import { GroupDirection, MergeGroupMode } from 'vs/workbench/services/editor/common/editorGroupsService';
 import { toDisposable } from 'vs/base/common/lifecycle';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { RunOnceScheduler } from 'vs/base/common/async';
 
 interface IDropOperation {
 	splitDirection?: GroupDirection;
@@ -32,6 +31,8 @@ class DropOverlay extends Themable {
 	private currentDropOperation: IDropOperation;
 	private _disposed: boolean;
 
+	private cleanupOverlayScheduler: RunOnceScheduler;
+
 	private readonly editorTransfer = LocalSelectionTransfer.getInstance<DraggedEditorIdentifier>();
 	private readonly groupTransfer = LocalSelectionTransfer.getInstance<DraggedEditorGroupIdentifier>();
 
@@ -42,6 +43,8 @@ class DropOverlay extends Themable {
 		private instantiationService: IInstantiationService
 	) {
 		super(themeService);
+
+		this.cleanupOverlayScheduler = this._register(new RunOnceScheduler(() => this.dispose(), 300));
 
 		this.create();
 	}
@@ -93,7 +96,7 @@ class DropOverlay extends Themable {
 
 	private registerListeners(): void {
 		this._register(new DragAndDropObserver(this.container, {
-			onDragEnter: e => void 0,
+			onDragEnter: e => undefined,
 			onDragOver: e => {
 				const isDraggingGroup = this.groupTransfer.hasData(DraggedEditorGroupIdentifier.prototype);
 				const isDraggingEditor = this.editorTransfer.hasData(DraggedEditorIdentifier.prototype);
@@ -118,6 +121,11 @@ class DropOverlay extends Themable {
 
 				// Position overlay
 				this.positionOverlay(e.offsetX, e.offsetY, isDraggingGroup);
+
+				// Make sure to stop any running cleanup scheduler to remove the overlay
+				if (this.cleanupOverlayScheduler.isScheduled()) {
+					this.cleanupOverlayScheduler.cancel();
+				}
 			},
 
 			onDragLeave: e => this.dispose(),
@@ -144,9 +152,9 @@ class DropOverlay extends Themable {
 			// To protect against this issue we always destroy the overlay as soon as we detect a
 			// mouse event over it. The delay is used to guarantee we are not interfering with the
 			// actual DROP event that can also trigger a mouse over event.
-			setTimeout(() => {
-				this.dispose();
-			}, 300);
+			if (!this.cleanupOverlayScheduler.isScheduled()) {
+				this.cleanupOverlayScheduler.schedule();
+			}
 		}));
 	}
 
@@ -162,7 +170,7 @@ class DropOverlay extends Themable {
 			return this.accessor.getGroup(this.editorTransfer.getData(DraggedEditorIdentifier.prototype)[0].identifier.groupId);
 		}
 
-		return void 0;
+		return undefined;
 	}
 
 	private handleDrop(event: DragEvent, splitDirection?: GroupDirection): void {
@@ -257,8 +265,8 @@ class DropOverlay extends Themable {
 	private positionOverlay(mousePosX: number, mousePosY: number, isDraggingGroup: boolean): void {
 		const preferSplitVertically = this.accessor.partOptions.openSideBySideDirection === 'right';
 
-		const groupViewWidth = this.groupView.element.clientWidth;
-		const groupViewHeight = this.groupView.element.clientHeight;
+		const editorControlWidth = this.groupView.element.clientWidth;
+		const editorControlHeight = this.groupView.element.clientHeight - this.getOverlayOffsetHeight();
 
 		let edgeWidthThresholdFactor: number;
 		if (isDraggingGroup) {
@@ -274,19 +282,28 @@ class DropOverlay extends Themable {
 			edgeHeightThresholdFactor = 0.1; // 10% threshold to split if dragging editors
 		}
 
-		const edgeWidthThreshold = groupViewWidth * edgeWidthThresholdFactor;
-		const edgeHeightThreshold = groupViewHeight * edgeHeightThresholdFactor;
+		const edgeWidthThreshold = editorControlWidth * edgeWidthThresholdFactor;
+		const edgeHeightThreshold = editorControlHeight * edgeHeightThresholdFactor;
 
-		const splitWidthThreshold = groupViewWidth / 3;		// offer to split left/right at 33%
-		const splitHeightThreshold = groupViewHeight / 3;	// offer to split up/down at 33%
+		const splitWidthThreshold = editorControlWidth / 3;		// offer to split left/right at 33%
+		const splitHeightThreshold = editorControlHeight / 3;	// offer to split up/down at 33%
+
+		// Enable to debug the drop threshold square
+		// let child = this.overlay.children.item(0) as HTMLElement || this.overlay.appendChild(document.createElement('div'));
+		// child.style.backgroundColor = 'red';
+		// child.style.position = 'absolute';
+		// child.style.width = (groupViewWidth - (2 * edgeWidthThreshold)) + 'px';
+		// child.style.height = (groupViewHeight - (2 * edgeHeightThreshold)) + 'px';
+		// child.style.left = edgeWidthThreshold + 'px';
+		// child.style.top = edgeHeightThreshold + 'px';
 
 		// No split if mouse is above certain threshold in the center of the view
 		let splitDirection: GroupDirection;
 		if (
-			mousePosX > edgeWidthThreshold && mousePosX < groupViewWidth - edgeWidthThreshold &&
-			mousePosY > edgeHeightThreshold && mousePosY < groupViewHeight - edgeHeightThreshold
+			mousePosX > edgeWidthThreshold && mousePosX < editorControlWidth - edgeWidthThreshold &&
+			mousePosY > edgeHeightThreshold && mousePosY < editorControlHeight - edgeHeightThreshold
 		) {
-			splitDirection = void 0;
+			splitDirection = undefined;
 		}
 
 		// Offer to split otherwise
@@ -306,7 +323,7 @@ class DropOverlay extends Themable {
 					splitDirection = GroupDirection.LEFT;
 				} else if (mousePosX > splitWidthThreshold * 2) {
 					splitDirection = GroupDirection.RIGHT;
-				} else if (mousePosY < groupViewHeight / 2) {
+				} else if (mousePosY < editorControlHeight / 2) {
 					splitDirection = GroupDirection.UP;
 				} else {
 					splitDirection = GroupDirection.DOWN;
@@ -327,7 +344,7 @@ class DropOverlay extends Themable {
 					splitDirection = GroupDirection.UP;
 				} else if (mousePosY > splitHeightThreshold * 2) {
 					splitDirection = GroupDirection.DOWN;
-				} else if (mousePosX < groupViewWidth / 2) {
+				} else if (mousePosX < editorControlWidth / 2) {
 					splitDirection = GroupDirection.LEFT;
 				} else {
 					splitDirection = GroupDirection.RIGHT;
@@ -396,7 +413,7 @@ class DropOverlay extends Themable {
 		removeClass(this.overlay, 'overlay-move-transition');
 
 		// Reset current operation
-		this.currentDropOperation = void 0;
+		this.currentDropOperation = undefined;
 	}
 
 	contains(element: HTMLElement): boolean {
@@ -423,7 +440,7 @@ export class EditorDropTarget extends Themable {
 		private accessor: IEditorGroupsAccessor,
 		private container: HTMLElement,
 		@IThemeService themeService: IThemeService,
-		@IInstantiationService private instantiationService: IInstantiationService
+		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
 		super(themeService);
 
@@ -435,7 +452,7 @@ export class EditorDropTarget extends Themable {
 			return this._overlay;
 		}
 
-		return void 0;
+		return undefined;
 	}
 
 	private registerListeners(): void {
@@ -495,15 +512,13 @@ export class EditorDropTarget extends Themable {
 
 	private findTargetGroupView(child: HTMLElement): IEditorGroupView {
 		const groups = this.accessor.groups;
-		for (let i = 0; i < groups.length; i++) {
-			const groupView = groups[i];
-
+		for (const groupView of groups) {
 			if (isAncestor(child, groupView.element)) {
 				return groupView;
 			}
 		}
 
-		return void 0;
+		return undefined;
 	}
 
 	private updateContainer(isDraggedOver: boolean): void {
@@ -519,7 +534,7 @@ export class EditorDropTarget extends Themable {
 	private disposeOverlay(): void {
 		if (this.overlay) {
 			this.overlay.dispose();
-			this._overlay = void 0;
+			this._overlay = undefined;
 		}
 	}
 }

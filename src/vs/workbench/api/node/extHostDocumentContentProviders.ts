@@ -2,19 +2,17 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import { onUnexpectedError } from 'vs/base/common/errors';
-import URI, { UriComponents } from 'vs/base/common/uri';
+import { URI, UriComponents } from 'vs/base/common/uri';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { Disposable } from 'vs/workbench/api/node/extHostTypes';
-import { TPromise } from 'vs/base/common/winjs.base';
 import * as vscode from 'vscode';
-import { asWinJsPromise } from 'vs/base/common/async';
 import { MainContext, ExtHostDocumentContentProvidersShape, MainThreadDocumentContentProvidersShape, IMainContext } from './extHost.protocol';
 import { ExtHostDocumentsAndEditors } from './extHostDocumentsAndEditors';
 import { Schemas } from 'vs/base/common/network';
 import { ILogService } from 'vs/platform/log/common/log';
+import { CancellationToken } from 'vs/base/common/cancellation';
 
 export class ExtHostDocumentContentProvider implements ExtHostDocumentContentProvidersShape {
 
@@ -47,7 +45,7 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 		this._documentContentProviders.set(handle, provider);
 		this._proxy.$registerTextContentProvider(handle, scheme);
 
-		let subscription: IDisposable;
+		let subscription: IDisposable | undefined;
 		if (typeof provider.onDidChange === 'function') {
 			subscription = provider.onDidChange(uri => {
 				if (uri.scheme !== scheme) {
@@ -56,6 +54,9 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 				}
 				if (this._documentsAndEditors.getDocument(uri.toString())) {
 					this.$provideTextDocumentContent(handle, uri).then(value => {
+						if (!value) {
+							return;
+						}
 
 						const document = this._documentsAndEditors.getDocument(uri.toString());
 						if (!document) {
@@ -86,11 +87,11 @@ export class ExtHostDocumentContentProvider implements ExtHostDocumentContentPro
 		});
 	}
 
-	$provideTextDocumentContent(handle: number, uri: UriComponents): TPromise<string> {
+	$provideTextDocumentContent(handle: number, uri: UriComponents): Promise<string | null | undefined> {
 		const provider = this._documentContentProviders.get(handle);
 		if (!provider) {
-			return TPromise.wrapError<string>(new Error(`unsupported uri-scheme: ${uri.scheme}`));
+			return Promise.reject(new Error(`unsupported uri-scheme: ${uri.scheme}`));
 		}
-		return asWinJsPromise(token => provider.provideTextDocumentContent(URI.revive(uri), token));
+		return Promise.resolve(provider.provideTextDocumentContent(URI.revive(uri), CancellationToken.None));
 	}
 }

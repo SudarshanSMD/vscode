@@ -2,7 +2,6 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import { IDisposable, dispose } from 'vs/base/common/lifecycle';
 import { FileChangeType, IFileService, FileOperation } from 'vs/platform/files/common/files';
@@ -53,7 +52,7 @@ export class MainThreadFileSystemEventService {
 		// file operation events - (changes the editor makes)
 		fileService.onAfterOperation(e => {
 			if (e.operation === FileOperation.MOVE) {
-				proxy.$onFileRename(e.resource, e.target.resource);
+				proxy.$onFileRename(e.resource, e.target!.resource);
 			}
 		}, undefined, this._listener);
 

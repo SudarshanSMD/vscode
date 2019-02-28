@@ -2,14 +2,13 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import * as json from 'vs/base/common/json';
 import { ResourceMap } from 'vs/base/common/map';
 import * as arrays from 'vs/base/common/arrays';
 import * as types from 'vs/base/common/types';
 import * as objects from 'vs/base/common/objects';
-import URI from 'vs/base/common/uri';
+import { URI } from 'vs/base/common/uri';
 import { OVERRIDE_PROPERTY_PATTERN } from 'vs/platform/configuration/common/configurationRegistry';
 import { IOverrides, overrideIdentifierFromKey, addToValueTree, toValuesTree, IConfigurationModel, getConfigurationValue, IConfigurationOverrides, IConfigurationData, getDefaultValues, getConfigurationKeys, IConfigurationChangeEvent, ConfigurationTarget, removeFromValueTree, toOverrides } from 'vs/platform/configuration/common/configuration';
 import { Workspace } from 'vs/platform/workspace/common/workspace';
@@ -37,7 +36,7 @@ export class ConfigurationModel implements IConfigurationModel {
 		return this.checkAndFreeze(this._keys);
 	}
 
-	getValue<V>(section: string): V {
+	getValue<V>(section: string | undefined): V {
 		return section ? getConfigurationValue<any>(this.contents, section) : this.contents;
 	}
 
@@ -191,7 +190,7 @@ export class DefaultConfigurationModel extends ConfigurationModel {
 
 export class ConfigurationModelParser {
 
-	private _configurationModel: ConfigurationModel = null;
+	private _configurationModel: ConfigurationModel | null = null;
 	private _parseErrors: any[] = [];
 
 	constructor(protected readonly _name: string) { }
@@ -204,15 +203,17 @@ export class ConfigurationModelParser {
 		return this._parseErrors;
 	}
 
-	public parse(content: string): void {
-		const raw = this.parseContent(content);
-		const configurationModel = this.parseRaw(raw);
-		this._configurationModel = new ConfigurationModel(configurationModel.contents, configurationModel.keys, configurationModel.overrides);
+	public parse(content: string | null | undefined): void {
+		if (content) {
+			const raw = this.parseContent(content);
+			const configurationModel = this.parseRaw(raw);
+			this._configurationModel = new ConfigurationModel(configurationModel.contents, configurationModel.keys, configurationModel.overrides);
+		}
 	}
 
 	protected parseContent(content: string): any {
 		let raw: any = {};
-		let currentProperty: string = null;
+		let currentProperty: string | null = null;
 		let currentParent: any = [];
 		let previousParents: any[] = [];
 		let parseErrors: json.ParseError[] = [];
@@ -250,8 +251,8 @@ export class ConfigurationModelParser {
 				currentParent = previousParents.pop();
 			},
 			onLiteralValue: onValue,
-			onError: (error: json.ParseErrorCode) => {
-				parseErrors.push({ error: error });
+			onError: (error: json.ParseErrorCode, offset: number, length: number) => {
+				parseErrors.push({ error, offset, length });
 			}
 		};
 		if (content) {
@@ -277,7 +278,7 @@ export class ConfigurationModelParser {
 
 export class Configuration {
 
-	private _workspaceConsolidatedConfiguration: ConfigurationModel = null;
+	private _workspaceConsolidatedConfiguration: ConfigurationModel | null = null;
 	private _foldersConsolidatedConfigurations: ResourceMap<ConfigurationModel> = new ResourceMap<ConfigurationModel>();
 
 	constructor(
@@ -290,13 +291,13 @@ export class Configuration {
 		private _freeze: boolean = true) {
 	}
 
-	getValue(section: string, overrides: IConfigurationOverrides, workspace: Workspace): any {
+	getValue(section: string | undefined, overrides: IConfigurationOverrides, workspace: Workspace | undefined): any {
 		const consolidateConfigurationModel = this.getConsolidateConfigurationModel(overrides, workspace);
 		return consolidateConfigurationModel.getValue(section);
 	}
 
 	updateValue(key: string, value: any, overrides: IConfigurationOverrides = {}): void {
-		let memoryConfiguration: ConfigurationModel;
+		let memoryConfiguration: ConfigurationModel | undefined;
 		if (overrides.resource) {
 			memoryConfiguration = this._memoryConfigurationByResource.get(overrides.resource);
 			if (!memoryConfiguration) {
@@ -307,7 +308,7 @@ export class Configuration {
 			memoryConfiguration = this._memoryConfiguration;
 		}
 
-		if (value === void 0) {
+		if (value === undefined) {
 			memoryConfiguration.removeValue(key);
 		} else {
 			memoryConfiguration.setValue(key, value);
@@ -318,11 +319,11 @@ export class Configuration {
 		}
 	}
 
-	inspect<C>(key: string, overrides: IConfigurationOverrides, workspace: Workspace): {
+	inspect<C>(key: string, overrides: IConfigurationOverrides, workspace: Workspace | undefined): {
 		default: C,
 		user: C,
-		workspace: C,
-		workspaceFolder: C
+		workspace?: C,
+		workspaceFolder?: C
 		memory?: C
 		value: C,
 	} {
@@ -332,20 +333,20 @@ export class Configuration {
 		return {
 			default: overrides.overrideIdentifier ? this._defaultConfiguration.freeze().override(overrides.overrideIdentifier).getValue(key) : this._defaultConfiguration.freeze().getValue(key),
 			user: overrides.overrideIdentifier ? this._userConfiguration.freeze().override(overrides.overrideIdentifier).getValue(key) : this._userConfiguration.freeze().getValue(key),
-			workspace: workspace ? overrides.overrideIdentifier ? this._workspaceConfiguration.freeze().override(overrides.overrideIdentifier).getValue(key) : this._workspaceConfiguration.freeze().getValue(key) : void 0, //Check on workspace exists or not because _workspaceConfiguration is never null
-			workspaceFolder: folderConfigurationModel ? overrides.overrideIdentifier ? folderConfigurationModel.freeze().override(overrides.overrideIdentifier).getValue(key) : folderConfigurationModel.freeze().getValue(key) : void 0,
-			memory: overrides.overrideIdentifier ? memoryConfigurationModel.freeze().override(overrides.overrideIdentifier).getValue(key) : memoryConfigurationModel.freeze().getValue(key),
+			workspace: workspace ? overrides.overrideIdentifier ? this._workspaceConfiguration.freeze().override(overrides.overrideIdentifier).getValue(key) : this._workspaceConfiguration.freeze().getValue(key) : undefined, //Check on workspace exists or not because _workspaceConfiguration is never null
+			workspaceFolder: folderConfigurationModel ? overrides.overrideIdentifier ? folderConfigurationModel.freeze().override(overrides.overrideIdentifier).getValue(key) : folderConfigurationModel.freeze().getValue(key) : undefined,
+			memory: overrides.overrideIdentifier ? memoryConfigurationModel.override(overrides.overrideIdentifier).getValue(key) : memoryConfigurationModel.getValue(key),
 			value: consolidateConfigurationModel.getValue(key)
 		};
 	}
 
-	keys(workspace: Workspace): {
+	keys(workspace: Workspace | undefined): {
 		default: string[];
 		user: string[];
 		workspace: string[];
 		workspaceFolder: string[];
 	} {
-		const folderConfigurationModel = this.getFolderConfigurationModelForResource(null, workspace);
+		const folderConfigurationModel = this.getFolderConfigurationModelForResource(undefined, workspace);
 		return {
 			default: this._defaultConfiguration.freeze().keys,
 			user: this._userConfiguration.freeze().keys,
@@ -398,12 +399,12 @@ export class Configuration {
 		return this._folderConfigurations;
 	}
 
-	private getConsolidateConfigurationModel(overrides: IConfigurationOverrides, workspace: Workspace): ConfigurationModel {
+	private getConsolidateConfigurationModel(overrides: IConfigurationOverrides, workspace: Workspace | undefined): ConfigurationModel {
 		let configurationModel = this.getConsolidatedConfigurationModelForResource(overrides, workspace);
 		return overrides.overrideIdentifier ? configurationModel.override(overrides.overrideIdentifier) : configurationModel;
 	}
 
-	private getConsolidatedConfigurationModelForResource({ resource }: IConfigurationOverrides, workspace: Workspace): ConfigurationModel {
+	private getConsolidatedConfigurationModelForResource({ resource }: IConfigurationOverrides, workspace: Workspace | undefined): ConfigurationModel {
 		let consolidateConfiguration = this.getWorkspaceConsolidatedConfiguration();
 
 		if (workspace && resource) {
@@ -448,11 +449,11 @@ export class Configuration {
 		return folderConsolidatedConfiguration;
 	}
 
-	private getFolderConfigurationModelForResource(resource: URI, workspace: Workspace): ConfigurationModel {
+	private getFolderConfigurationModelForResource(resource: URI | null | undefined, workspace: Workspace | undefined): ConfigurationModel | null {
 		if (workspace && resource) {
 			const root = workspace.getFolder(resource);
 			if (root) {
-				return this._folderConfigurations.get(root.uri);
+				return this._folderConfigurations.get(root.uri) || null;
 			}
 		}
 		return null;
@@ -476,7 +477,7 @@ export class Configuration {
 				keys: this._workspaceConfiguration.keys
 			},
 			folders: this._folderConfigurations.keys().reduce((result, folder) => {
-				const { contents, overrides, keys } = this._folderConfigurations.get(folder);
+				const { contents, overrides, keys } = this._folderConfigurations.get(folder)!;
 				result[folder.toString()] = { contents, overrides, keys };
 				return result;
 			}, Object.create({})),
@@ -497,7 +498,7 @@ export class Configuration {
 		addKeys(keys.user);
 		addKeys(keys.workspace);
 		for (const resource of this.folders.keys()) {
-			addKeys(this.folders.get(resource).keys);
+			addKeys(this.folders.get(resource)!.keys);
 		}
 		return all;
 	}
@@ -553,7 +554,7 @@ export class ConfigurationChangeEvent extends AbstractConfigurationChangeEvent i
 			this._changedConfiguration = this._changedConfiguration.merge(arg1._changedConfiguration);
 			for (const resource of arg1._changedConfigurationByResource.keys()) {
 				let changedConfigurationByResource = this.getOrSetChangedConfigurationForResource(resource);
-				changedConfigurationByResource = changedConfigurationByResource.merge(arg1._changedConfigurationByResource.get(resource));
+				changedConfigurationByResource = changedConfigurationByResource.merge(arg1._changedConfigurationByResource.get(resource)!);
 				this._changedConfigurationByResource.set(resource, changedConfigurationByResource);
 			}
 		} else {

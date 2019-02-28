@@ -6,9 +6,9 @@
 import * as vscode from 'vscode';
 import * as Proto from '../protocol';
 import { ITypeScriptServiceClient } from '../typescriptService';
-import * as typeConverters from '../utils/typeConverters';
-import { VersionDependentRegistration } from '../utils/dependentRegistration';
 import API from '../utils/api';
+import { VersionDependentRegistration } from '../utils/dependentRegistration';
+import * as typeConverters from '../utils/typeConverters';
 
 class TypeScriptFoldingProvider implements vscode.FoldingRangeProvider {
 	public constructor(
@@ -20,14 +20,14 @@ class TypeScriptFoldingProvider implements vscode.FoldingRangeProvider {
 		_context: vscode.FoldingContext,
 		token: vscode.CancellationToken
 	): Promise<vscode.FoldingRange[] | undefined> {
-		const file = this.client.toPath(document.uri);
+		const file = this.client.toOpenedFilePath(document);
 		if (!file) {
 			return;
 		}
 
 		const args: Proto.FileRequestArgs = { file };
-		const response: Proto.OutliningSpansResponse = await this.client.execute('getOutliningSpans', args, token);
-		if (!response || !response.body) {
+		const response = await this.client.execute('getOutliningSpans', args, token);
+		if (response.type !== 'response' || !response.body) {
 			return;
 		}
 

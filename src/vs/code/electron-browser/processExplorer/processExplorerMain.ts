@@ -3,21 +3,24 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import 'vs/css!./media/processExplorer';
 import { listProcesses, ProcessItem } from 'vs/base/node/ps';
-import { remote, webFrame, ipcRenderer, clipboard } from 'electron';
+import { webFrame, ipcRenderer, clipboard } from 'electron';
 import { repeat } from 'vs/base/common/strings';
 import { totalmem } from 'os';
-import product from 'vs/platform/node/product';
+import product from 'vs/platform/product/node/product';
 import { localize } from 'vs/nls';
 import { ProcessExplorerStyles, ProcessExplorerData } from 'vs/platform/issue/common/issue';
 import * as browser from 'vs/base/browser/browser';
 import * as platform from 'vs/base/common/platform';
+import { IContextMenuItem } from 'vs/base/parts/contextmenu/common/contextmenu';
+import { popup } from 'vs/base/parts/contextmenu/electron-browser/contextmenu';
 
 let processList: any[];
 let mapPidToWindowTitle = new Map<number, string>();
+
+const DEBUG_FLAGS_PATTERN = /\s--(inspect|debug)(-brk|port)?=(\d+)?/;
+const DEBUG_PORT_PATTERN = /\s--(inspect|debug)-port=(\d+)/;
 
 function getProcessList(rootProcess: ProcessItem) {
 	const processes: any[] = [];
@@ -62,6 +65,40 @@ function getProcessItem(processes: any[], item: ProcessItem, indent: number): vo
 	}
 }
 
+function isDebuggable(cmd: string): boolean {
+	const matches = DEBUG_FLAGS_PATTERN.exec(cmd);
+	return (matches && matches.length >= 2) || cmd.indexOf('node ') >= 0 || cmd.indexOf('node.exe') >= 0;
+}
+
+function attachTo(item: ProcessItem) {
+	const config: any = {
+		type: 'node',
+		request: 'attach',
+		name: `process ${item.pid}`
+	};
+
+	let matches = DEBUG_FLAGS_PATTERN.exec(item.cmd);
+	if (matches && matches.length >= 2) {
+		// attach via port
+		if (matches.length === 4 && matches[3]) {
+			config.port = parseInt(matches[3]);
+		}
+		config.protocol = matches[1] === 'debug' ? 'legacy' : 'inspector';
+	} else {
+		// no port -> try to attach via pid (send SIGUSR1)
+		config.processId = String(item.pid);
+	}
+
+	// a debug-port=n or inspect-port=n overrides the port
+	matches = DEBUG_PORT_PATTERN.exec(item.cmd);
+	if (matches && matches.length === 3) {
+		// override port
+		config.port = parseInt(matches[2]);
+	}
+
+	ipcRenderer.send('vscode:workbenchCommand', { id: 'debug.startFromConfig', from: 'processExplorer', args: [config] });
+}
+
 function getProcessIdWithHighestProperty(processList, propertyName: string) {
 	let max = 0;
 	let maxProcessId;
@@ -76,32 +113,56 @@ function getProcessIdWithHighestProperty(processList, propertyName: string) {
 }
 
 function updateProcessInfo(processList): void {
-	const target = document.getElementById('process-list');
+	const container = document.getElementById('process-list');
+	if (!container) {
+		return;
+	}
+
+	container.innerHTML = '';
 	const highestCPUProcess = getProcessIdWithHighestProperty(processList, 'cpu');
 	const highestMemoryProcess = getProcessIdWithHighestProperty(processList, 'memory');
 
-	let tableHtml = `
-		<tr>
-			<th class="cpu">${localize('cpu', "CPU %")}</th>
-			<th class="memory">${localize('memory', "Memory (MB)")}</th>
-			<th class="pid">${localize('pid', "pid")}</th>
-			<th class="nameLabel">${localize('name', "Name")}</th>
-		</tr>`;
+	const tableHead = document.createElement('thead');
+	tableHead.innerHTML = `<tr>
+		<th scope="col" class="cpu">${localize('cpu', "CPU %")}</th>
+		<th scope="col" class="memory">${localize('memory', "Memory (MB)")}</th>
+		<th scope="col" class="pid">${localize('pid', "pid")}</th>
+		<th scope="col" class="nameLabel">${localize('name', "Name")}</th>
+	</tr>`;
+
+	const tableBody = document.createElement('tbody');
 
 	processList.forEach(p => {
-		const cpuClass = p.pid === highestCPUProcess ? 'highest' : '';
-		const memoryClass = p.pid === highestMemoryProcess ? 'highest' : '';
+		const row = document.createElement('tr');
+		row.id = p.pid;
 
-		tableHtml += `
-			<tr id=${p.pid}>
-				<td class="centered ${cpuClass}">${p.cpu}</td>
-				<td class="centered ${memoryClass}">${p.memory}</td>
-				<td class="centered">${p.pid}</td>
-				<td title="${p.name}" class="data">${p.formattedName}</td>
-			</tr>`;
+		const cpu = document.createElement('td');
+		p.pid === highestCPUProcess
+			? cpu.classList.add('centered', 'highest')
+			: cpu.classList.add('centered');
+		cpu.textContent = p.cpu;
+
+		const memory = document.createElement('td');
+		p.pid === highestMemoryProcess
+			? memory.classList.add('centered', 'highest')
+			: memory.classList.add('centered');
+		memory.textContent = p.memory;
+
+		const pid = document.createElement('td');
+		pid.classList.add('centered');
+		pid.textContent = p.pid;
+
+		const name = document.createElement('th');
+		name.scope = 'row';
+		name.classList.add('data');
+		name.title = p.cmd;
+		name.textContent = p.formattedName;
+
+		row.append(cpu, memory, pid, name);
+		tableBody.appendChild(row);
 	});
 
-	target.innerHTML = `<table>${tableHtml}</table>`;
+	container.append(tableHead, tableBody);
 }
 
 function applyStyles(styles: ProcessExplorerStyles): void {
@@ -121,8 +182,12 @@ function applyStyles(styles: ProcessExplorerStyles): void {
 	}
 
 	styleTag.innerHTML = content.join('\n');
-	document.head.appendChild(styleTag);
-	document.body.style.color = styles.color;
+	if (document.head) {
+		document.head.appendChild(styleTag);
+	}
+	if (styles.color) {
+		document.body.style.color = styles.color;
+	}
 }
 
 function applyZoom(zoomLevel: number): void {
@@ -137,29 +202,29 @@ function applyZoom(zoomLevel: number): void {
 function showContextMenu(e) {
 	e.preventDefault();
 
-	const menu = new remote.Menu();
+	const items: IContextMenuItem[] = [];
 
 	const pid = parseInt(e.currentTarget.id);
 	if (pid && typeof pid === 'number') {
-		menu.append(new remote.MenuItem({
+		items.push({
 			label: localize('killProcess', "Kill Process"),
 			click() {
 				process.kill(pid, 'SIGTERM');
 			}
-		}));
+		});
 
-		menu.append(new remote.MenuItem({
+		items.push({
 			label: localize('forceKillProcess', "Force Kill Process"),
 			click() {
 				process.kill(pid, 'SIGKILL');
 			}
-		}));
+		});
 
-		menu.append(new remote.MenuItem({
+		items.push({
 			type: 'separator'
-		}));
+		});
 
-		menu.append(new remote.MenuItem({
+		items.push({
 			label: localize('copy', "Copy"),
 			click() {
 				const row = document.getElementById(pid.toString());
@@ -167,9 +232,9 @@ function showContextMenu(e) {
 					clipboard.writeText(row.innerText);
 				}
 			}
-		}));
+		});
 
-		menu.append(new remote.MenuItem({
+		items.push({
 			label: localize('copyAll', "Copy All"),
 			click() {
 				const processList = document.getElementById('process-list');
@@ -177,9 +242,23 @@ function showContextMenu(e) {
 					clipboard.writeText(processList.innerText);
 				}
 			}
-		}));
+		});
+
+		const item = processList.filter(process => process.pid === pid)[0];
+		if (item && isDebuggable(item.cmd)) {
+			items.push({
+				type: 'separator'
+			});
+
+			items.push({
+				label: localize('debug', "Debug"),
+				click() {
+					attachTo(item);
+				}
+			});
+		}
 	} else {
-		menu.append(new remote.MenuItem({
+		items.push({
 			label: localize('copyAll', "Copy All"),
 			click() {
 				const processList = document.getElementById('process-list');
@@ -187,10 +266,10 @@ function showContextMenu(e) {
 					clipboard.writeText(processList.innerText);
 				}
 			}
-		}));
+		});
 	}
 
-	menu.popup(remote.getCurrentWindow());
+	popup(items);
 }
 
 export function startup(data: ProcessExplorerData): void {
@@ -198,7 +277,7 @@ export function startup(data: ProcessExplorerData): void {
 	applyZoom(data.zoomLevel);
 
 	// Map window process pids to titles, annotate process names with this when rendering to distinguish between them
-	ipcRenderer.on('windowsInfoResponse', (event, windows) => {
+	ipcRenderer.on('vscode:windowsInfoResponse', (event, windows) => {
 		mapPidToWindowTitle = new Map<number, string>();
 		windows.forEach(window => mapPidToWindowTitle.set(window.pid, window.title));
 	});
@@ -206,7 +285,7 @@ export function startup(data: ProcessExplorerData): void {
 	setInterval(() => {
 		ipcRenderer.send('windowsInfoRequest');
 
-		listProcesses(remote.process.pid).then(processes => {
+		listProcesses(data.pid).then(processes => {
 			processList = getProcessList(processes);
 			updateProcessInfo(processList);
 

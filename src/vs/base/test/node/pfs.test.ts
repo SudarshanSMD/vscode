@@ -2,14 +2,11 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
-
-import { TPromise } from 'vs/base/common/winjs.base';
 
 import * as assert from 'assert';
 import * as os from 'os';
 
-import * as path from 'path';
+import * as path from 'vs/base/common/path';
 import * as fs from 'fs';
 
 import * as uuid from 'vs/base/common/uuid';
@@ -18,7 +15,7 @@ import { timeout } from 'vs/base/common/async';
 
 suite('PFS', () => {
 
-	test('writeFile', function () {
+	test('writeFile', () => {
 		const id = uuid.generateUuid();
 		const parentDir = path.join(os.tmpdir(), 'vsctests', id);
 		const newDir = path.join(parentDir, 'pfs', id);
@@ -27,7 +24,7 @@ suite('PFS', () => {
 		return pfs.mkdirp(newDir, 493).then(() => {
 			assert.ok(fs.existsSync(newDir));
 
-			return pfs.writeFile(testFile, 'Hello World', null).then(() => {
+			return pfs.writeFile(testFile, 'Hello World', null!).then(() => {
 				assert.equal(fs.readFileSync(testFile), 'Hello World');
 
 				return pfs.del(parentDir, os.tmpdir());
@@ -48,12 +45,12 @@ suite('PFS', () => {
 		return pfs.mkdirp(newDir, 493).then(() => {
 			assert.ok(fs.existsSync(newDir));
 
-			return TPromise.join([
-				pfs.writeFile(testFile1, 'Hello World 1', null),
-				pfs.writeFile(testFile2, 'Hello World 2', null),
-				pfs.writeFile(testFile3, 'Hello World 3', null),
-				pfs.writeFile(testFile4, 'Hello World 4', null),
-				pfs.writeFile(testFile5, 'Hello World 5', null)
+			return Promise.all([
+				pfs.writeFile(testFile1, 'Hello World 1', null!),
+				pfs.writeFile(testFile2, 'Hello World 2', null!),
+				pfs.writeFile(testFile3, 'Hello World 3', null!),
+				pfs.writeFile(testFile4, 'Hello World 4', null!),
+				pfs.writeFile(testFile5, 'Hello World 5', null!)
 			]).then(() => {
 				assert.equal(fs.readFileSync(testFile1), 'Hello World 1');
 				assert.equal(fs.readFileSync(testFile2), 'Hello World 2');
@@ -75,12 +72,12 @@ suite('PFS', () => {
 		return pfs.mkdirp(newDir, 493).then(() => {
 			assert.ok(fs.existsSync(newDir));
 
-			return TPromise.join([
-				pfs.writeFile(testFile, 'Hello World 1', null),
-				pfs.writeFile(testFile, 'Hello World 2', null),
-				timeout(10).then(() => pfs.writeFile(testFile, 'Hello World 3', null)),
-				pfs.writeFile(testFile, 'Hello World 4', null),
-				timeout(10).then(() => pfs.writeFile(testFile, 'Hello World 5', null))
+			return Promise.all([
+				pfs.writeFile(testFile, 'Hello World 1', undefined),
+				pfs.writeFile(testFile, 'Hello World 2', undefined),
+				timeout(10).then(() => pfs.writeFile(testFile, 'Hello World 3', undefined)),
+				pfs.writeFile(testFile, 'Hello World 4', undefined),
+				timeout(10).then(() => pfs.writeFile(testFile, 'Hello World 5', undefined))
 			]).then(() => {
 				assert.equal(fs.readFileSync(testFile), 'Hello World 5');
 
@@ -118,6 +115,23 @@ suite('PFS', () => {
 
 			return pfs.rimraf(newDir).then(() => {
 				assert.ok(!fs.existsSync(newDir));
+			});
+		});
+	});
+
+	test('moveIgnoreError', function () {
+		const id = uuid.generateUuid();
+		const parentDir = path.join(os.tmpdir(), 'vsctests', id);
+		const newDir = path.join(parentDir, 'extfs', id);
+
+		return pfs.mkdirp(newDir, 493).then(() => {
+			return pfs.renameIgnoreError(path.join(newDir, 'foo'), path.join(newDir, 'bar')).then(() => {
+
+				return pfs.del(parentDir, os.tmpdir());
+			}, error => {
+				assert.fail(error);
+
+				return Promise.reject(error);
 			});
 		});
 	});

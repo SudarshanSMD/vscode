@@ -2,13 +2,11 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import { flatten } from 'vs/base/common/arrays';
 import { AsyncEmitter, Emitter, Event } from 'vs/base/common/event';
 import { IRelativePattern, parse } from 'vs/base/common/glob';
-import URI, { UriComponents } from 'vs/base/common/uri';
-import { TPromise } from 'vs/base/common/winjs.base';
+import { URI, UriComponents } from 'vs/base/common/uri';
 import { ExtHostDocumentsAndEditors } from 'vs/workbench/api/node/extHostDocumentsAndEditors';
 import { IExtensionDescription } from 'vs/workbench/services/extensions/common/extensions';
 import * as vscode from 'vscode';
@@ -133,29 +131,29 @@ export class ExtHostFileSystemEventService implements ExtHostFileSystemEventServ
 
 	getOnWillRenameFileEvent(extension: IExtensionDescription): Event<vscode.FileWillRenameEvent> {
 		return (listener, thisArg, disposables) => {
-			let wrappedListener = <WillRenameListener><any>function () {
-				listener.apply(thisArg, arguments);
-			};
+			const wrappedListener: WillRenameListener = <any>((e: vscode.FileWillRenameEvent) => {
+				listener.call(thisArg, e);
+			});
 			wrappedListener.extension = extension;
 			return this._onWillRenameFile.event(wrappedListener, undefined, disposables);
 		};
 	}
 
-	$onWillRename(oldUriDto: UriComponents, newUriDto: UriComponents): TPromise<any> {
+	$onWillRename(oldUriDto: UriComponents, newUriDto: UriComponents): Promise<any> {
 		const oldUri = URI.revive(oldUriDto);
 		const newUri = URI.revive(newUriDto);
 
 		const edits: WorkspaceEdit[] = [];
-		return this._onWillRenameFile.fireAsync((bucket, listener) => {
+		return Promise.resolve(this._onWillRenameFile.fireAsync((bucket, _listener) => {
 			return {
 				oldUri,
 				newUri,
-				waitUntil: (thenable: Thenable<vscode.WorkspaceEdit>): void => {
+				waitUntil: (thenable: Promise<vscode.WorkspaceEdit>): void => {
 					if (Object.isFrozen(bucket)) {
 						throw new TypeError('waitUntil cannot be called async');
 					}
 					const index = bucket.length;
-					const wrappedThenable = TPromise.as(thenable).then(result => {
+					const wrappedThenable = Promise.resolve(thenable).then(result => {
 						// ignore all results except for WorkspaceEdits. Those
 						// are stored in a spare array
 						if (result instanceof WorkspaceEdit) {
@@ -165,13 +163,13 @@ export class ExtHostFileSystemEventService implements ExtHostFileSystemEventServ
 					bucket.push(wrappedThenable);
 				}
 			};
-		}).then(() => {
+		}).then((): any => {
 			if (edits.length === 0) {
 				return undefined;
 			}
 			// flatten all WorkspaceEdits collected via waitUntil-call
 			// and apply them in one go.
-			let allEdits = new Array<(ResourceFileEditDto | ResourceTextEditDto)[]>();
+			let allEdits = new Array<Array<ResourceFileEditDto | ResourceTextEditDto>>();
 			for (let edit of edits) {
 				if (edit) { // sparse array
 					let { edits } = typeConverter.WorkspaceEdit.from(edit, this._extHostDocumentsAndEditors);
@@ -179,6 +177,6 @@ export class ExtHostFileSystemEventService implements ExtHostFileSystemEventServ
 				}
 			}
 			return this._mainThreadTextEditors.$tryApplyWorkspaceEdit({ edits: flatten(allEdits) });
-		});
+		}));
 	}
 }

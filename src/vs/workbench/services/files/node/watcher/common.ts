@@ -3,9 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
-import uri from 'vs/base/common/uri';
+import { URI as uri } from 'vs/base/common/uri';
 import { FileChangeType, FileChangesEvent, isParent } from 'vs/platform/files/common/files';
 import { isLinux } from 'vs/base/common/platform';
 
@@ -32,8 +30,7 @@ export function normalize(changes: IRawFileChange[]): IRawFileChange[] {
 
 	// Build deltas
 	let normalizer = new EventNormalizer();
-	for (let i = 0; i < changes.length; i++) {
-		let event = changes[i];
+	for (const event of changes) {
 		normalizer.processEvent(event);
 	}
 

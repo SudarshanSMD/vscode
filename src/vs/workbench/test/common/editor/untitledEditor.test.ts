@@ -2,11 +2,9 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
-
-import URI from 'vs/base/common/uri';
+import { URI } from 'vs/base/common/uri';
 import * as assert from 'assert';
-import { join } from 'vs/base/common/paths';
+import { join } from 'vs/base/common/path';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { IUntitledEditorService, UntitledEditorService } from 'vs/workbench/services/untitled/common/untitledEditorService';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
@@ -204,7 +202,7 @@ suite('Workbench untitled editors', () => {
 		config.setUserConfiguration('files', { 'defaultLanguage': defaultLanguage });
 
 		const service = accessor.untitledEditorService;
-		const input = service.createOrGet(null, modeId);
+		const input = service.createOrGet(null!, modeId);
 
 		assert.equal(input.getModeId(), modeId);
 
