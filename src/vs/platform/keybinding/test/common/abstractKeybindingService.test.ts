@@ -106,6 +106,7 @@ suite('AbstractKeybindingService', () => {
 				_serviceBrand: undefined,
 				dispose: undefined!,
 				onDidChangeContext: undefined!,
+				bufferChangeEvents() { },
 				createKey: undefined!,
 				contextMatchesRules: undefined!,
 				getContextKeyValue: undefined!,
@@ -178,8 +179,8 @@ suite('AbstractKeybindingService', () => {
 		statusMessageCallsDisposed = null;
 	});
 
-	function kbItem(keybinding: number, command: string, when: ContextKeyExpr | null = null): ResolvedKeybindingItem {
-		const resolvedKeybinding = (keybinding !== 0 ? new USLayoutResolvedKeybinding(createKeybinding(keybinding, OS)!, OS) : null);
+	function kbItem(keybinding: number, command: string, when?: ContextKeyExpr): ResolvedKeybindingItem {
+		const resolvedKeybinding = (keybinding !== 0 ? new USLayoutResolvedKeybinding(createKeybinding(keybinding, OS)!, OS) : undefined);
 		return new ResolvedKeybindingItem(
 			resolvedKeybinding,
 			command,

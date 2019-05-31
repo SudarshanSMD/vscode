@@ -6,7 +6,7 @@
 import 'vs/css!./media/gotoErrorWidget';
 import * as nls from 'vs/nls';
 import * as dom from 'vs/base/browser/dom';
-import { IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { IDisposable, dispose, Disposable } from 'vs/base/common/lifecycle';
 import { IMarker, MarkerSeverity, IRelatedInformation } from 'vs/platform/markers/common/markers';
 import { Position } from 'vs/editor/common/core/position';
 import { Range } from 'vs/editor/common/core/range';
@@ -28,7 +28,7 @@ import { IActionBarOptions, ActionsOrientation } from 'vs/base/browser/ui/action
 import { peekViewTitleForeground, peekViewTitleInfoForeground } from 'vs/editor/contrib/referenceSearch/referencesWidget';
 import { AccessibilitySupport } from 'vs/platform/accessibility/common/accessibility';
 
-class MessageWidget {
+class MessageWidget extends Disposable {
 
 	private _lines: number = 0;
 	private _longestLineLength: number = 0;
@@ -38,9 +38,9 @@ class MessageWidget {
 	private readonly _relatedBlock: HTMLDivElement;
 	private readonly _scrollable: ScrollableElement;
 	private readonly _relatedDiagnostics = new WeakMap<HTMLElement, IRelatedInformation>();
-	private readonly _disposables: IDisposable[] = [];
 
-	constructor(parent: HTMLElement, editor: ICodeEditor, onRelatedInformation: (related: IRelatedInformation) => void, ) {
+	constructor(parent: HTMLElement, editor: ICodeEditor, onRelatedInformation: (related: IRelatedInformation) => void) {
+		super();
 		this._editor = editor;
 
 		const domNode = document.createElement('div');
@@ -54,7 +54,7 @@ class MessageWidget {
 
 		this._relatedBlock = document.createElement('div');
 		domNode.appendChild(this._relatedBlock);
-		this._disposables.push(dom.addStandardDisposableListener(this._relatedBlock, 'click', event => {
+		this._register(dom.addStandardDisposableListener(this._relatedBlock, 'click', event => {
 			event.preventDefault();
 			const related = this._relatedDiagnostics.get(event.target);
 			if (related) {
@@ -69,17 +69,12 @@ class MessageWidget {
 			horizontalScrollbarSize: 3,
 			verticalScrollbarSize: 3
 		});
-		dom.addClass(this._scrollable.getDomNode(), 'block');
 		parent.appendChild(this._scrollable.getDomNode());
-		this._disposables.push(this._scrollable.onScroll(e => {
+		this._register(this._scrollable.onScroll(e => {
 			domNode.style.left = `-${e.scrollLeft}px`;
 			domNode.style.top = `-${e.scrollTop}px`;
 		}));
-		this._disposables.push(this._scrollable);
-	}
-
-	dispose(): void {
-		dispose(this._disposables);
+		this._register(this._scrollable);
 	}
 
 	update({ source, message, relatedInformation, code }: IMarker): void {
@@ -156,6 +151,7 @@ class MessageWidget {
 
 	layout(height: number, width: number): void {
 		this._scrollable.getDomNode().style.height = `${height}px`;
+		this._scrollable.getDomNode().style.width = `${width}px`;
 		this._scrollable.setScrollDimensions({ width, height });
 	}
 
@@ -173,13 +169,14 @@ export class MarkerNavigationWidget extends PeekViewWidget {
 	private _severity: MarkerSeverity;
 	private _backgroundColor?: Color;
 	private _onDidSelectRelatedInformation = new Emitter<IRelatedInformation>();
+	private _heightInPixel: number;
 
 	readonly onDidSelectRelatedInformation: Event<IRelatedInformation> = this._onDidSelectRelatedInformation.event;
 
 	constructor(
 		editor: ICodeEditor,
-		private actions: IAction[],
-		private _themeService: IThemeService
+		private readonly actions: IAction[],
+		private readonly _themeService: IThemeService
 	) {
 		super(editor, { showArrow: true, showFrame: true, isAccessible: true });
 		this._severity = MarkerSeverity.Warning;
@@ -304,8 +301,13 @@ export class MarkerNavigationWidget extends PeekViewWidget {
 
 	protected _doLayoutBody(heightInPixel: number, widthInPixel: number): void {
 		super._doLayoutBody(heightInPixel, widthInPixel);
+		this._heightInPixel = heightInPixel;
 		this._message.layout(heightInPixel, widthInPixel);
 		this._container.style.height = `${heightInPixel}px`;
+	}
+
+	public _onWidth(widthInPixel: number): void {
+		this._message.layout(this._heightInPixel, widthInPixel);
 	}
 
 	protected _relayout(): void {

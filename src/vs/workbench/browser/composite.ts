@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IAction, IActionRunner, ActionRunner } from 'vs/base/common/actions';
-import { IActionItem } from 'vs/base/browser/ui/actionbar/actionbar';
+import { IActionViewItem } from 'vs/base/browser/ui/actionbar/actionbar';
 import { Component } from 'vs/workbench/common/component';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { IComposite, ICompositeControl } from 'vs/workbench/common/composite';
@@ -42,6 +42,12 @@ export abstract class Composite extends Component implements IComposite {
 		}
 
 		return this._onDidFocus.event;
+	}
+
+	protected fireOnDidFocus(): void {
+		if (this._onDidFocus) {
+			this._onDidFocus.fire();
+		}
 	}
 
 	private _onDidBlur: Emitter<void>;
@@ -164,12 +170,19 @@ export abstract class Composite extends Component implements IComposite {
 	}
 
 	/**
-	 * For any of the actions returned by this composite, provide an IActionItem in
+	 * For any of the actions returned by this composite, provide an IActionViewItem in
 	 * cases where the implementor of the composite wants to override the presentation
-	 * of an action. Returns null to indicate that the action is not rendered through
+	 * of an action. Returns undefined to indicate that the action is not rendered through
 	 * an action item.
 	 */
-	getActionItem(action: IAction): IActionItem | null {
+	getActionViewItem(action: IAction): IActionViewItem | undefined {
+		return undefined;
+	}
+
+	/**
+	 * Provide a context to be passed to the toolbar.
+	 */
+	getActionsContext(): unknown {
 		return null;
 	}
 
@@ -203,10 +216,10 @@ export abstract class Composite extends Component implements IComposite {
 	}
 
 	/**
-	 * Returns the underlying composite control or null if it is not accessible.
+	 * Returns the underlying composite control or `undefined` if it is not accessible.
 	 */
-	getControl(): ICompositeControl | null {
-		return null;
+	getControl(): ICompositeControl | undefined {
+		return undefined;
 	}
 }
 
@@ -250,7 +263,7 @@ export abstract class CompositeRegistry<T extends Composite> extends Disposable 
 
 	protected deregisterComposite(id: string): void {
 		const descriptor = this.compositeById(id);
-		if (descriptor === null) {
+		if (!descriptor) {
 			return;
 		}
 

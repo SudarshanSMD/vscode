@@ -21,6 +21,7 @@ import { ILabelService, ResourceLabelFormatter, ResourceLabelFormatting } from '
 import { ExtensionsRegistry } from 'vs/workbench/services/extensions/common/extensionsRegistry';
 import { match } from 'vs/base/common/glob';
 import { LifecyclePhase } from 'vs/platform/lifecycle/common/lifecycle';
+import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
 
 const resourceLabelFormattersExtPoint = ExtensionsRegistry.registerExtensionPoint<ResourceLabelFormatter[]>({
 	extensionPoint: 'resourceLabelFormatters',
@@ -159,7 +160,7 @@ export class LabelService implements ILabelService {
 	}
 
 	getWorkspaceLabel(workspace: (IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier | IWorkspace), options?: { verbose: boolean }): string {
-		if (!isWorkspaceIdentifier(workspace) && !isSingleFolderWorkspaceIdentifier(workspace)) {
+		if (IWorkspace.isIWorkspace(workspace)) {
 			const identifier = toWorkspaceIdentifier(workspace);
 			if (!identifier) {
 				return '';
@@ -175,21 +176,27 @@ export class LabelService implements ILabelService {
 			return this.appendWorkspaceSuffix(label, workspace);
 		}
 
-		// Workspace: Untitled
-		if (isEqualOrParent(workspace.configPath, this.environmentService.untitledWorkspacesHome)) {
-			return localize('untitledWorkspace', "Untitled (Workspace)");
-		}
+		if (isWorkspaceIdentifier(workspace)) {
+			// Workspace: Untitled
+			if (isEqualOrParent(workspace.configPath, this.environmentService.untitledWorkspacesHome)) {
+				return localize('untitledWorkspace', "Untitled (Workspace)");
+			}
 
-		// Workspace: Saved
-		const filename = basename(workspace.configPath);
-		const workspaceName = filename.substr(0, filename.length - WORKSPACE_EXTENSION.length - 1);
-		let label;
-		if (options && options.verbose) {
-			label = localize('workspaceNameVerbose', "{0} (Workspace)", this.getUriLabel(joinPath(dirname(workspace.configPath), workspaceName)));
-		} else {
-			label = localize('workspaceName', "{0} (Workspace)", workspaceName);
+			// Workspace: Saved
+			let filename = basename(workspace.configPath);
+			if (endsWith(filename, WORKSPACE_EXTENSION)) {
+				filename = filename.substr(0, filename.length - WORKSPACE_EXTENSION.length - 1);
+			}
+			let label;
+			if (options && options.verbose) {
+				label = localize('workspaceNameVerbose', "{0} (Workspace)", this.getUriLabel(joinPath(dirname(workspace.configPath), filename)));
+			} else {
+				label = localize('workspaceName', "{0} (Workspace)", filename);
+			}
+			return this.appendWorkspaceSuffix(label, workspace.configPath);
 		}
-		return this.appendWorkspaceSuffix(label, workspace.configPath);
+		return '';
+
 	}
 
 	getSeparator(scheme: string, authority?: string): '/' | '\\' {
@@ -254,6 +261,8 @@ export class LabelService implements ILabelService {
 
 		const formatting = this.findFormatting(uri);
 		const suffix = formatting && (typeof formatting.workspaceSuffix === 'string') ? formatting.workspaceSuffix : uri.scheme;
-		return suffix ? `${label} (${suffix})` : label;
+		return suffix ? `${label} [${suffix}]` : label;
 	}
 }
+
+registerSingleton(ILabelService, LabelService, true);
