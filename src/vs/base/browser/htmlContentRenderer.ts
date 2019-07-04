@@ -9,7 +9,7 @@ import { escape } from 'vs/base/common/strings';
 import { removeMarkdownEscapes, IMarkdownString } from 'vs/base/common/htmlContent';
 import * as marked from 'vs/base/common/marked/marked';
 import { IMouseEvent } from 'vs/base/browser/mouseEvent';
-import { IDisposable } from 'vs/base/common/lifecycle';
+import { DisposableStore } from 'vs/base/common/lifecycle';
 import { onUnexpectedError } from 'vs/base/common/errors';
 import { URI } from 'vs/base/common/uri';
 import { parse } from 'vs/base/common/marshalling';
@@ -17,7 +17,7 @@ import { cloneAndChange } from 'vs/base/common/objects';
 
 export interface IContentActionHandler {
 	callback: (content: string, event?: IMouseEvent) => void;
-	readonly disposeables: IDisposable[];
+	readonly disposeables: DisposableStore;
 }
 
 export interface RenderOptions {
@@ -75,12 +75,15 @@ export function renderMarkdown(markdown: IMarkdownString, options: RenderOptions
 		return encodeURIComponent(JSON.stringify(data));
 	};
 
-	const _href = function (href: string): string {
+	const _href = function (href: string, isDomUri: boolean): string {
 		const data = markdown.uris && markdown.uris[href];
 		if (!data) {
 			return href;
 		}
 		let uri = URI.revive(data);
+		if (isDomUri) {
+			uri = DOM.asDomUri(uri);
+		}
 		if (uri.query) {
 			uri = uri.with({ query: _uriMassage(uri.query) });
 		}
@@ -97,7 +100,7 @@ export function renderMarkdown(markdown: IMarkdownString, options: RenderOptions
 
 	const renderer = new marked.Renderer();
 	renderer.image = (href: string, title: string, text: string) => {
-		href = _href(href);
+		href = _href(href, true);
 		let dimensions: string[] = [];
 		if (href) {
 			const splitted = href.split('|').map(s => s.trim());
@@ -138,7 +141,7 @@ export function renderMarkdown(markdown: IMarkdownString, options: RenderOptions
 		if (href === text) { // raw link case
 			text = removeMarkdownEscapes(text);
 		}
-		href = _href(href);
+		href = _href(href, false);
 		title = removeMarkdownEscapes(title);
 		href = removeMarkdownEscapes(href);
 		if (
@@ -189,7 +192,7 @@ export function renderMarkdown(markdown: IMarkdownString, options: RenderOptions
 	}
 
 	if (options.actionHandler) {
-		options.actionHandler.disposeables.push(DOM.addStandardDisposableListener(element, 'click', event => {
+		options.actionHandler.disposeables.add(DOM.addStandardDisposableListener(element, 'click', event => {
 			let target: HTMLElement | null = event.target;
 			if (target.tagName !== 'A') {
 				target = target.parentElement;
@@ -284,7 +287,7 @@ function _renderFormattedText(element: Node, treeNode: IFormatParseTree, actionH
 	else if (treeNode.type === FormatType.Action && actionHandler) {
 		const a = document.createElement('a');
 		a.href = '#';
-		actionHandler.disposeables.push(DOM.addStandardDisposableListener(a, 'click', (event) => {
+		actionHandler.disposeables.add(DOM.addStandardDisposableListener(a, 'click', (event) => {
 			actionHandler.callback(String(treeNode.index), event);
 		}));
 

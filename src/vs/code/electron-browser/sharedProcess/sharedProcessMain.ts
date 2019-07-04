@@ -31,13 +31,13 @@ import { IWindowsService, ActiveWindowManager } from 'vs/platform/windows/common
 import { WindowsService } from 'vs/platform/windows/electron-browser/windowsService';
 import { ipcRenderer } from 'electron';
 import { ILogService, LogLevel } from 'vs/platform/log/common/log';
-import { LogLevelSetterChannelClient, FollowerLogService } from 'vs/platform/log/node/logIpc';
+import { LogLevelSetterChannelClient, FollowerLogService } from 'vs/platform/log/common/logIpc';
 import { LocalizationsService } from 'vs/platform/localizations/node/localizations';
 import { ILocalizationsService } from 'vs/platform/localizations/common/localizations';
 import { LocalizationsChannel } from 'vs/platform/localizations/node/localizationsIpc';
 import { DialogChannelClient } from 'vs/platform/dialogs/node/dialogIpc';
 import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
-import { IDisposable, dispose, combinedDisposable } from 'vs/base/common/lifecycle';
+import { combinedDisposable, DisposableStore } from 'vs/base/common/lifecycle';
 import { DownloadService } from 'vs/platform/download/node/downloadService';
 import { IDownloadService } from 'vs/platform/download/common/download';
 import { IChannel, IServerChannel, StaticRouter } from 'vs/base/parts/ipc/common/ipc';
@@ -48,6 +48,9 @@ import { LogsDataCleaner } from 'vs/code/electron-browser/sharedProcess/contrib/
 import { IMainProcessService } from 'vs/platform/ipc/electron-browser/mainProcessService';
 import { ServiceIdentifier } from 'vs/platform/instantiation/common/instantiation';
 import { SpdLogService } from 'vs/platform/log/node/spdlogService';
+import { DiagnosticsService } from 'vs/platform/diagnostics/node/diagnosticsService';
+import { IDiagnosticsService } from 'vs/platform/diagnostics/common/diagnosticsService';
+import { DiagnosticsChannel } from 'vs/platform/diagnostics/node/diagnosticsIpc';
 
 export interface ISharedProcessConfiguration {
 	readonly machineId: string;
@@ -79,29 +82,32 @@ class MainProcessService implements IMainProcessService {
 	}
 }
 
-function main(server: Server, initData: ISharedProcessInitData, configuration: ISharedProcessConfiguration): void {
+async function main(server: Server, initData: ISharedProcessInitData, configuration: ISharedProcessConfiguration): Promise<void> {
 	const services = new ServiceCollection();
 
-	const disposables: IDisposable[] = [];
+	const disposables = new DisposableStore();
 
-	const onExit = () => dispose(disposables);
+	const onExit = () => disposables.dispose();
 	process.once('exit', onExit);
 	ipcRenderer.once('handshake:goodbye', onExit);
 
-	disposables.push(server);
+	disposables.add(server);
 
 	const environmentService = new EnvironmentService(initData.args, process.execPath);
 
 	const mainRouter = new StaticRouter(ctx => ctx === 'main');
 	const logLevelClient = new LogLevelSetterChannelClient(server.getChannel('loglevel', mainRouter));
 	const logService = new FollowerLogService(logLevelClient, new SpdLogService('sharedprocess', environmentService.logsPath, initData.logLevel));
-	disposables.push(logService);
-
+	disposables.add(logService);
 	logService.info('main', JSON.stringify(configuration));
+
+	const configurationService = new ConfigurationService(environmentService.settingsResource);
+	disposables.add(configurationService);
+	await configurationService.initialize();
 
 	services.set(IEnvironmentService, environmentService);
 	services.set(ILogService, logService);
-	services.set(IConfigurationService, new SyncDescriptor(ConfigurationService, [environmentService.appSettingsPath]));
+	services.set(IConfigurationService, configurationService);
 	services.set(IRequestService, new SyncDescriptor(RequestService));
 	services.set(IDownloadService, new SyncDescriptor(DownloadService));
 
@@ -118,6 +124,7 @@ function main(server: Server, initData: ISharedProcessInitData, configuration: I
 
 	const instantiationService = new InstantiationService(services);
 
+	let telemetryService: ITelemetryService;
 	instantiationService.invokeFunction(accessor => {
 		const services = new ServiceCollection();
 		const environmentService = accessor.get(IEnvironmentService);
@@ -130,7 +137,7 @@ function main(server: Server, initData: ISharedProcessInitData, configuration: I
 		if (!extensionDevelopmentLocationURI && !environmentService.args['disable-telemetry'] && product.enableTelemetry) {
 			if (product.aiConfig && product.aiConfig.asimovKey && isBuilt) {
 				appInsightsAppender = new AppInsightsAppender(eventPrefix, null, product.aiConfig.asimovKey, telemetryLogService);
-				disposables.push(appInsightsAppender); // Ensure the AI appender is disposed so that it flushes remaining data
+				disposables.add(appInsightsAppender); // Ensure the AI appender is disposed so that it flushes remaining data
 			}
 			const config: ITelemetryServiceConfig = {
 				appender: combinedAppender(appInsightsAppender, new LogAppender(logService)),
@@ -138,8 +145,10 @@ function main(server: Server, initData: ISharedProcessInitData, configuration: I
 				piiPaths: [appRoot, extensionsPath]
 			};
 
-			services.set(ITelemetryService, new SyncDescriptor(TelemetryService, [config]));
+			telemetryService = new TelemetryService(config, configurationService);
+			services.set(ITelemetryService, telemetryService);
 		} else {
+			telemetryService = NullTelemetryService;
 			services.set(ITelemetryService, NullTelemetryService);
 		}
 		server.registerChannel('telemetryAppender', new TelemetryAppenderChannel(appInsightsAppender));
@@ -147,6 +156,7 @@ function main(server: Server, initData: ISharedProcessInitData, configuration: I
 		services.set(IExtensionManagementService, new SyncDescriptor(ExtensionManagementService));
 		services.set(IExtensionGalleryService, new SyncDescriptor(ExtensionGalleryService));
 		services.set(ILocalizationsService, new SyncDescriptor(LocalizationsService));
+		services.set(IDiagnosticsService, new SyncDescriptor(DiagnosticsService));
 
 		const instantiationService2 = instantiationService.createChild(services);
 
@@ -160,18 +170,22 @@ function main(server: Server, initData: ISharedProcessInitData, configuration: I
 			const localizationsChannel = new LocalizationsChannel(localizationsService);
 			server.registerChannel('localizations', localizationsChannel);
 
+			const diagnosticsService = accessor.get(IDiagnosticsService);
+			const diagnosticsChannel = new DiagnosticsChannel(diagnosticsService);
+			server.registerChannel('diagnostics', diagnosticsChannel);
+
 			// clean up deprecated extensions
 			(extensionManagementService as ExtensionManagementService).removeDeprecatedExtensions();
 			// update localizations cache
 			(localizationsService as LocalizationsService).update();
 			// cache clean ups
-			disposables.push(combinedDisposable(
+			disposables.add(combinedDisposable(
 				instantiationService2.createInstance(NodeCachedDataCleaner),
 				instantiationService2.createInstance(LanguagePackCachedDataCleaner),
 				instantiationService2.createInstance(StorageDataCleaner),
 				instantiationService2.createInstance(LogsDataCleaner)
 			));
-			disposables.push(extensionManagementService as ExtensionManagementService);
+			disposables.add(extensionManagementService as ExtensionManagementService);
 		});
 	});
 }
@@ -218,6 +232,6 @@ async function handshake(configuration: ISharedProcessConfiguration): Promise<vo
 
 	const server = await setupIPC(data.sharedIPCHandle);
 
-	main(server, data, configuration);
+	await main(server, data, configuration);
 	ipcRenderer.send('handshake:im ready');
 }

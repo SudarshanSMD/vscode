@@ -36,7 +36,7 @@ import { IViewletService } from 'vs/workbench/services/viewlet/browser/viewlet';
 import { IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
 import { IWorkbenchActionRegistry, Extensions as ActionExtensions } from 'vs/workbench/common/actions';
 import { SyncActionDescriptor } from 'vs/platform/actions/common/actions';
-import { createCSSRule } from 'vs/base/browser/dom';
+import { createCSSRule, asDomUri } from 'vs/base/browser/dom';
 
 export interface IUserFriendlyViewsContainerDescriptor {
 	id: string;
@@ -321,13 +321,13 @@ class ViewsExtensionHandler implements IWorkbenchContribution {
 			const registry = Registry.as<IWorkbenchActionRegistry>(ActionExtensions.WorkbenchActions);
 			registry.registerWorkbenchAction(
 				new SyncActionDescriptor(OpenCustomViewletAction, id, localize('showViewlet', "Show {0}", title)),
-				'View: Show {0}',
+				`View: Show ${title}`,
 				localize('view', "View")
 			);
 
 			// Generate CSS to show the icon in the activity bar
 			const iconClass = `.monaco-workbench .activitybar .monaco-action-bar .action-label.${cssClass}`;
-			createCSSRule(iconClass, `-webkit-mask: url('${icon}') no-repeat 50% 50%`);
+			createCSSRule(iconClass, `-webkit-mask: url('${asDomUri(icon)}') no-repeat 50% 50%; -webkit-mask-size: 24px;`);
 		}
 
 		return viewContainer;

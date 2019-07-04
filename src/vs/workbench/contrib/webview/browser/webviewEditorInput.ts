@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as dom from 'vs/base/browser/dom';
 import { Emitter } from 'vs/base/common/event';
-import { dispose, IDisposable } from 'vs/base/common/lifecycle';
+import { DisposableStore } from 'vs/base/common/lifecycle';
 import { URI } from 'vs/base/common/uri';
 import { IEditorModel } from 'vs/platform/editor/common/editor';
 import { ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
@@ -39,10 +39,10 @@ export class WebviewEditorInput extends EditorInput {
 		this._icons.forEach((value, key) => {
 			const webviewSelector = `.show-file-icons .webview-${key}-name-file-icon::before`;
 			if (URI.isUri(value)) {
-				cssRules.push(`${webviewSelector} { content: ""; background-image: url(${value.toString()}); }`);
+				cssRules.push(`${webviewSelector} { content: ""; background-image: url(${dom.asDomUri(value).toString()}); }`);
 			} else {
-				cssRules.push(`.vs ${webviewSelector} { content: ""; background-image: url(${value.light.toString()}); }`);
-				cssRules.push(`.vs-dark ${webviewSelector} { content: ""; background-image: url(${value.dark.toString()}); }`);
+				cssRules.push(`.vs ${webviewSelector} { content: ""; background-image: url(${dom.asDomUri(value.light).toString()}); }`);
+				cssRules.push(`.vs-dark ${webviewSelector} { content: ""; background-image: url(${dom.asDomUri(value.dark).toString()}); }`);
 			}
 		});
 		this._styleElement.innerHTML = cssRules.join('\n');
@@ -59,7 +59,7 @@ export class WebviewEditorInput extends EditorInput {
 	private _container?: HTMLElement;
 	private _webview?: Webview;
 	private _webviewOwner: any;
-	private _webviewDisposables: IDisposable[] = [];
+	private readonly _webviewDisposables = this._register(new DisposableStore());
 	private _group?: GroupIdentifier;
 	private _scrollYPercentage: number = 0;
 	private _state: any;
@@ -229,7 +229,7 @@ export class WebviewEditorInput extends EditorInput {
 	}
 
 	public set webview(value: Webview | undefined) {
-		this._webviewDisposables = dispose(this._webviewDisposables);
+		this._webviewDisposables.clear();
 
 		this._webview = value;
 		if (!this._webview) {
@@ -284,8 +284,7 @@ export class WebviewEditorInput extends EditorInput {
 			this._webview = undefined;
 		}
 
-		this._webviewDisposables = dispose(this._webviewDisposables);
-
+		this._webviewDisposables.clear();
 		this._webviewOwner = undefined;
 
 		if (this._container) {

@@ -12,7 +12,7 @@ import { ITreeContextMenuEvent, ITreeElement } from 'vs/base/browser/ui/tree/tre
 import { IAction } from 'vs/base/common/actions';
 import { Delayer } from 'vs/base/common/async';
 import * as errors from 'vs/base/common/errors';
-import { Emitter, Event } from 'vs/base/common/event';
+import { Event } from 'vs/base/common/event';
 import { Iterator } from 'vs/base/common/iterator';
 import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
 import { dispose, IDisposable } from 'vs/base/common/lifecycle';
@@ -23,7 +23,7 @@ import 'vs/css!./media/searchview';
 import { ICodeEditor, isCodeEditor, isDiffEditor } from 'vs/editor/browser/editorBrowser';
 import { IEditorOptions } from 'vs/editor/common/config/editorOptions';
 import * as nls from 'vs/nls';
-import { fillInContextMenuActions } from 'vs/platform/actions/browser/menuEntryActionViewItem';
+import { createAndFillInContextMenuActions } from 'vs/platform/actions/browser/menuEntryActionViewItem';
 import { IMenu, IMenuService, MenuId } from 'vs/platform/actions/common/actions';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import { IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
@@ -33,7 +33,7 @@ import { FileChangesEvent, FileChangeType, IFileService } from 'vs/platform/file
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { TreeResourceNavigator2, WorkbenchObjectTree, getSelectionKeyboardEvent } from 'vs/platform/list/browser/listService';
 import { INotificationService, Severity } from 'vs/platform/notification/common/notification';
-import { ILocalProgressService, IProgressService } from 'vs/platform/progress/common/progress';
+import { IProgressService, IProgressStep, IProgress } from 'vs/platform/progress/common/progress';
 import { IPatternInfo, ISearchComplete, ISearchConfiguration, ISearchConfigurationProperties, ITextQuery, SearchErrorCode, VIEW_ID, VIEWLET_ID } from 'vs/workbench/services/search/common/search';
 import { ISearchHistoryService, ISearchHistoryValues } from 'vs/workbench/contrib/search/common/searchHistoryService';
 import { diffInserted, diffInsertedOutline, diffRemoved, diffRemovedOutline, editorFindMatchHighlight, editorFindMatchHighlightBorder, listActiveSelectionForeground } from 'vs/platform/theme/common/colorRegistry';
@@ -59,7 +59,7 @@ import { relativePath } from 'vs/base/common/resources';
 import { IAccessibilityService, AccessibilitySupport } from 'vs/platform/accessibility/common/accessibility';
 import { ViewletPanel, IViewletPanelOptions } from 'vs/workbench/browser/parts/views/panelViewlet';
 import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
-import { Memento } from 'vs/workbench/common/memento';
+import { Memento, MementoObject } from 'vs/workbench/common/memento';
 import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
 
 const $ = dom.$;
@@ -102,8 +102,8 @@ export class SearchView extends ViewletPanel {
 
 	private tree: WorkbenchObjectTree<RenderableMatch>;
 	private treeLabels: ResourceLabels;
-	private viewletState: object;
-	private globalMemento: object;
+	private viewletState: MementoObject;
+	private globalMemento: MementoObject;
 	private messagesElement: HTMLElement;
 	private messageDisposables: IDisposable[] = [];
 	private searchWidgetsContainerElement: HTMLElement;
@@ -117,7 +117,6 @@ export class SearchView extends ViewletPanel {
 
 	private currentSelectedFileMatch: FileMatch | undefined;
 
-	private readonly selectCurrentMatchEmitter: Emitter<string | undefined>;
 	private delayedRefresh: Delayer<void>;
 	private changedWhileHidden: boolean;
 
@@ -129,7 +128,6 @@ export class SearchView extends ViewletPanel {
 		options: IViewletPanelOptions,
 		@IFileService private readonly fileService: IFileService,
 		@IEditorService private readonly editorService: IEditorService,
-		@ILocalProgressService private readonly localProgressService: ILocalProgressService,
 		@IProgressService private readonly progressService: IProgressService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IDialogService private readonly dialogService: IDialogService,
@@ -175,10 +173,6 @@ export class SearchView extends ViewletPanel {
 		this._register(this.untitledEditorService.onDidChangeDirty(e => this.onUntitledDidChangeDirty(e)));
 		this._register(this.contextService.onDidChangeWorkbenchState(() => this.onDidChangeWorkbenchState()));
 		this._register(this.searchHistoryService.onDidClearHistory(() => this.clearHistory()));
-
-		this.selectCurrentMatchEmitter = this._register(new Emitter<string>());
-		this._register(Event.debounce(this.selectCurrentMatchEmitter.event, (l, e) => e, 100, /*leading=*/true)
-			(() => this.selectCurrentMatch()));
 
 		this.delayedRefresh = this._register(new Delayer<void>(250));
 
@@ -320,14 +314,6 @@ export class SearchView extends ViewletPanel {
 		// Enable highlights if there are searchresults
 		if (this.viewModel) {
 			this.viewModel.searchResult.toggleHighlights(visible);
-		}
-
-		// Open focused element from results in case the editor area is otherwise empty
-		if (visible && !this.editorService.activeEditor) {
-			const focus = this.tree.getFocus();
-			if (focus) {
-				this.onFocus(focus, true);
-			}
 		}
 	}
 
@@ -518,12 +504,18 @@ export class SearchView extends ViewletPanel {
 			return;
 		}
 
-		const progressRunner = this.localProgressService.show(100);
-
 		const occurrences = this.viewModel.searchResult.count();
 		const fileCount = this.viewModel.searchResult.fileCount();
 		const replaceValue = this.searchWidget.getReplaceValue() || '';
 		const afterReplaceAllMessage = this.buildAfterReplaceAllMessage(occurrences, fileCount, replaceValue);
+
+		let progressComplete: () => void;
+		let progressReporter: IProgress<IProgressStep>;
+		this.progressService.withProgress({ location: VIEWLET_ID, delay: 100, total: occurrences }, p => {
+			progressReporter = p;
+
+			return new Promise(resolve => progressComplete = resolve);
+		});
 
 		const confirmation: IConfirmation = {
 			title: nls.localize('replaceAll.confirmation.title', "Replace All"),
@@ -535,12 +527,12 @@ export class SearchView extends ViewletPanel {
 		this.dialogService.confirm(confirmation).then(res => {
 			if (res.confirmed) {
 				this.searchWidget.setReplaceAllActionState(false);
-				this.viewModel.searchResult.replaceAll(progressRunner).then(() => {
-					progressRunner.done();
+				this.viewModel.searchResult.replaceAll(progressReporter).then(() => {
+					progressComplete();
 					const messageEl = this.clearMessage();
 					dom.append(messageEl, $('p', undefined, afterReplaceAllMessage));
 				}, (error) => {
-					progressRunner.done();
+					progressComplete();
 					errors.isPromiseCanceledError(error);
 					this.notificationService.error(error);
 				});
@@ -694,21 +686,15 @@ export class SearchView extends ViewletPanel {
 		e.browserEvent.preventDefault();
 		e.browserEvent.stopPropagation();
 
+		const actions: IAction[] = [];
+		const actionsDisposable = createAndFillInContextMenuActions(this.contextMenu, { shouldForwardArgs: true }, actions, this.contextMenuService);
+
 		this.contextMenuService.showContextMenu({
 			getAnchor: () => e.anchor,
-			getActions: () => {
-				const actions: IAction[] = [];
-				fillInContextMenuActions(this.contextMenu, { shouldForwardArgs: true }, actions, this.contextMenuService);
-				return actions;
-			},
-			getActionsContext: () => e.element
+			getActions: () => actions,
+			getActionsContext: () => e.element,
+			onHide: () => dispose(actionsDisposable)
 		});
-	}
-
-	selectCurrentMatch(): void {
-		const focused = this.tree.getFocus()[0];
-		const fakeKeyboardEvent = getSelectionKeyboardEvent(undefined, false);
-		this.tree.setSelection([focused], fakeKeyboardEvent);
 	}
 
 	selectNextMatch(): void {
@@ -744,7 +730,6 @@ export class SearchView extends ViewletPanel {
 		if (next) {
 			this.tree.setFocus([next], getSelectionKeyboardEvent(undefined, false));
 			this.tree.reveal(next);
-			this.selectCurrentMatchEmitter.fire(undefined);
 		}
 	}
 
@@ -784,7 +769,6 @@ export class SearchView extends ViewletPanel {
 		if (prev) {
 			this.tree.setFocus([prev], getSelectionKeyboardEvent(undefined, false));
 			this.tree.reveal(prev);
-			this.selectCurrentMatchEmitter.fire(undefined);
 		}
 	}
 
@@ -1194,7 +1178,7 @@ export class SearchView extends ViewletPanel {
 
 		const options: ITextQueryBuilderOptions = {
 			_reason: 'searchView',
-			extraFileResources: getOutOfWorkspaceEditorResources(this.editorService, this.contextService),
+			extraFileResources: this.instantiationService.invokeFunction(getOutOfWorkspaceEditorResources),
 			maxResults: SearchView.MAX_TEXT_RESULTS,
 			disregardIgnoreFiles: !useExcludesAndIgnoreFiles || undefined,
 			disregardExcludeSettings: !useExcludesAndIgnoreFiles || undefined,
@@ -1543,12 +1527,7 @@ export class SearchView extends ViewletPanel {
 		this.currentSelectedFileMatch = undefined;
 	}
 
-	private onFocus(lineMatch: any, preserveFocus?: boolean, sideBySide?: boolean, pinned?: boolean): Promise<any> {
-		if (!(lineMatch instanceof Match)) {
-			this.viewModel.searchResult.rangeHighlightDecorations.removeHighlightRange();
-			return Promise.resolve(true);
-		}
-
+	private onFocus(lineMatch: Match, preserveFocus?: boolean, sideBySide?: boolean, pinned?: boolean): Promise<any> {
 		const useReplacePreview = this.configurationService.getValue<ISearchConfiguration>().search.useReplacePreview;
 		return (useReplacePreview && this.viewModel.isReplaceActive() && !!this.viewModel.replaceString) ?
 			this.replaceService.openReplacePreview(lineMatch, preserveFocus, sideBySide, pinned) :
@@ -1699,21 +1678,9 @@ export class SearchView extends ViewletPanel {
 		super.saveState();
 	}
 
-	private _toDispose: IDisposable[] = [];
-	protected _register<T extends IDisposable>(t: T): T {
-		if (this.isDisposed) {
-			console.warn('Registering disposable on object that has already been disposed.');
-			t.dispose();
-		} else {
-			this._toDispose.push(t);
-		}
-		return t;
-	}
-
 	dispose(): void {
 		this.isDisposed = true;
 		this.saveState();
-		this._toDispose = dispose(this._toDispose);
 		super.dispose();
 	}
 }

@@ -21,7 +21,6 @@ const json = require('gulp-json-editor');
 const _ = require('underscore');
 const util = require('./lib/util');
 const task = require('./lib/task');
-const ext = require('./lib/extensions');
 const buildfile = require('../src/buildfile');
 const common = require('./lib/optimize');
 const root = path.dirname(__dirname);
@@ -35,6 +34,7 @@ const getElectronVersion = require('./lib/electron').getElectronVersion;
 const createAsar = require('./lib/asar').createAsar;
 const minimist = require('minimist');
 const { compileBuildTask } = require('./gulpfile.compile');
+const { compileExtensionsBuildTask } = require('./gulpfile.extensions');
 
 const productionDependencies = deps.getProductionDependencies(path.dirname(__dirname));
 // @ts-ignore
@@ -92,10 +92,7 @@ const BUNDLED_FILE_HEADER = [
 ].join('\n');
 
 const optimizeVSCodeTask = task.define('optimize-vscode', task.series(
-	task.parallel(
-		util.rimraf('out-vscode'),
-		compileBuildTask
-	),
+	util.rimraf('out-vscode'),
 	common.optimizeTask({
 		src: 'out-build',
 		entryPoints: vscodeEntryPoints,
@@ -107,23 +104,16 @@ const optimizeVSCodeTask = task.define('optimize-vscode', task.series(
 	})
 ));
 
-
-const optimizeIndexJSTask = task.define('optimize-index-js', task.series(
+const sourceMappingURLBase = `https://ticino.blob.core.windows.net/sourcemaps/${commit}`;
+const minifyVSCodeTask = task.define('minify-vscode', task.series(
 	optimizeVSCodeTask,
+	util.rimraf('out-vscode-min'),
 	() => {
 		const fullpath = path.join(process.cwd(), 'out-vscode/bootstrap-window.js');
 		const contents = fs.readFileSync(fullpath).toString();
 		const newContents = contents.replace('[/*BUILD->INSERT_NODE_MODULES*/]', JSON.stringify(nodeModules));
 		fs.writeFileSync(fullpath, newContents);
-	}
-));
-
-const sourceMappingURLBase = `https://ticino.blob.core.windows.net/sourcemaps/${commit}`;
-const minifyVSCodeTask = task.define('minify-vscode', task.series(
-	task.parallel(
-		util.rimraf('out-vscode-min'),
-		optimizeIndexJSTask
-	),
+	},
 	common.minifyTask('out-vscode', `${sourceMappingURLBase}/core`)
 ));
 
@@ -280,9 +270,8 @@ function packageTask(platform, arch, sourceFolderName, destinationFolderName, op
 
 		const root = path.resolve(path.join(__dirname, '..'));
 
-		const sources = es.merge(src, ext.packageExtensionsStream({
-			sourceMappingURLBase: sourceMappingURLBase
-		}));
+		const extensions = gulp.src('.build/extensions/**', { base: '.build', dot: true });
+		const sources = es.merge(src, extensions);
 
 		let version = packageJson.version;
 		// @ts-ignore JSON checking: quality is optional
@@ -318,6 +307,8 @@ function packageTask(platform, arch, sourceFolderName, destinationFolderName, op
 		// TODO the API should be copied to `out` during compile, not here
 		const api = gulp.src('src/vs/vscode.d.ts').pipe(rename('out/vs/vscode.d.ts'));
 
+		const telemetry = gulp.src('.build/telemetry/**', { base: '.build/telemetry', dot: true });
+
 		const depsSrc = [
 			..._.flatten(productionDependencies.map(d => path.relative(root, d.path)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`])),
 			// @ts-ignore JSON checking: dependencies is optional
@@ -330,10 +321,11 @@ function packageTask(platform, arch, sourceFolderName, destinationFolderName, op
 			.pipe(createAsar(path.join(process.cwd(), 'node_modules'), ['**/*.node', '**/vscode-ripgrep/bin/*', '**/node-pty/build/Release/*'], 'app/node_modules.asar'));
 
 		let all = es.merge(
-		packageJsonStream,
+			packageJsonStream,
 			productJsonStream,
 			license,
 			api,
+			telemetry,
 			sources,
 			deps
 		);
@@ -383,7 +375,7 @@ function packageTask(platform, arch, sourceFolderName, destinationFolderName, op
 			.pipe(util.skipDirectories())
 			.pipe(util.fixWin32DirectoryPermissions())
 			.pipe(electron(_.extend({}, config, { platform, arch, ffmpegChromium: true })))
-			.pipe(filter(['**', '!LICENSE', '!LICENSES.chromium.html', '!version']));
+			.pipe(filter(['**', '!LICENSE', '!LICENSES.chromium.html', '!version'], { dot: true }));
 
 		// result = es.merge(result, gulp.src('resources/completions/**', { base: '.' }));
 
@@ -447,12 +439,17 @@ BUILD_TARGETS.forEach(buildTarget => {
 		const sourceFolderName = `out-vscode${dashed(minified)}`;
 		const destinationFolderName = `VSCode${dashed(platform)}${dashed(arch)}`;
 
-		const vscodeTask = task.define(`vscode${dashed(platform)}${dashed(arch)}${dashed(minified)}`, task.series(
-			task.parallel(
-				minified ? minifyVSCodeTask : optimizeVSCodeTask,
-				util.rimraf(path.join(buildRoot, destinationFolderName))
-			),
+		const vscodeTaskCI = task.define(`vscode${dashed(platform)}${dashed(arch)}${dashed(minified)}-ci`, task.series(
+			minified ? minifyVSCodeTask : optimizeVSCodeTask,
+			util.rimraf(path.join(buildRoot, destinationFolderName)),
 			packageTask(platform, arch, sourceFolderName, destinationFolderName, opts)
+		));
+		gulp.task(vscodeTaskCI);
+
+		const vscodeTask = task.define(`vscode${dashed(platform)}${dashed(arch)}${dashed(minified)}`, task.series(
+			compileBuildTask,
+			compileExtensionsBuildTask,
+			vscodeTaskCI
 		));
 		gulp.task(vscodeTask);
 	});
@@ -541,14 +538,14 @@ gulp.task('vscode-translations-import', function () {
 // Sourcemaps
 
 gulp.task('upload-vscode-sourcemaps', () => {
-	const vs = gulp.src('out-vscode-min/**/*.map', { base: 'out-vscode-min' })
+	const vs = gulp.src('out-vscode-min/**/*.map', { base: 'out-vscode-min' }) // client source-maps only
 		.pipe(es.mapSync(f => {
 			f.path = `${f.base}/core/${f.relative}`;
 			return f;
 		}));
 
-	const extensionsOut = gulp.src('extensions/**/out/**/*.map', { base: '.' });
-	const extensionsDist = gulp.src('extensions/**/dist/**/*.map', { base: '.' });
+	const extensionsOut = gulp.src(['extensions/**/out/**/*.map', '!extensions/**/node_modules/**'], { base: '.' });
+	const extensionsDist = gulp.src(['extensions/**/dist/**/*.map', '!extensions/**/node_modules/**'], { base: '.' });
 
 	return es.merge(vs, extensionsOut, extensionsDist)
 		.pipe(es.through(function (data) {
