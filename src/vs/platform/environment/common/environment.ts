@@ -77,6 +77,9 @@ export interface ParsedArgs {
 	'js-flags'?: boolean;
 	'disable-gpu'?: boolean;
 	'nolazy'?: boolean;
+
+	// Web flags
+	'web-user-data-dir'?: string;
 }
 
 export const IEnvironmentService = createDecorator<IEnvironmentService>('environmentService');
@@ -89,6 +92,8 @@ export interface IDebugParams {
 export interface IExtensionHostDebugParams extends IDebugParams {
 	debugId?: string;
 }
+
+export const BACKUPS = 'Backups';
 
 export interface IEnvironmentService {
 	_serviceBrand: any;
@@ -105,20 +110,21 @@ export interface IEnvironmentService {
 	appNameLong: string;
 	appQuality?: string;
 	appSettingsHome: URI;
+
+	// user roaming data
+	userRoamingDataHome: URI;
 	settingsResource: URI;
 	keybindingsResource: URI;
 	keyboardLayoutResource: URI;
+	localeResource: URI;
 
 	machineSettingsHome: URI;
 	machineSettingsResource: URI;
 
-	settingsSearchBuildId?: number;
-	settingsSearchUrl?: string;
-
 	globalStorageHome: string;
 	workspaceStorageHome: string;
 
-	backupHome: string;
+	backupHome: URI;
 	backupWorkspacesPath: string;
 
 	untitledWorkspacesHome: URI;
@@ -163,4 +169,5 @@ export interface IEnvironmentService {
 
 	webviewEndpoint?: string;
 	readonly webviewResourceRoot: string;
+	readonly webviewCspSource: string;
 }

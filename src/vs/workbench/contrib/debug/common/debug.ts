@@ -26,6 +26,7 @@ import { TaskIdentifier } from 'vs/workbench/contrib/tasks/common/tasks';
 import { TelemetryService } from 'vs/platform/telemetry/common/telemetryService';
 import { ITerminalConfiguration } from 'vs/workbench/contrib/terminal/common/terminal';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IExternalTerminalSettings } from 'vs/workbench/contrib/externalTerminal/common/externalTerminal';
 
 export const VIEWLET_ID = 'workbench.view.debug';
 export const VIEW_CONTAINER: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer(VIEWLET_ID);
@@ -576,11 +577,7 @@ export interface ITerminalLauncher {
 }
 
 export interface ITerminalSettings {
-	external: {
-		windowsExec: string,
-		osxExec: string,
-		linuxExec: string
-	};
+	external: IExternalTerminalSettings;
 	integrated: ITerminalConfiguration;
 }
 
@@ -725,7 +722,7 @@ export interface IDebugService {
 	/**
 	 * Updates the breakpoints.
 	 */
-	updateBreakpoints(uri: uri, data: Map<string, IBreakpointUpdateData>, sendOnResourceSaved: boolean): void;
+	updateBreakpoints(uri: uri, data: Map<string, IBreakpointUpdateData>, sendOnResourceSaved: boolean): Promise<void>;
 
 	/**
 	 * Enables or disables all breakpoints. If breakpoint is passed only enables or disables the passed breakpoint.

@@ -3,11 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { window, Terminal, TerminalVirtualProcess, EventEmitter, TerminalDimensions } from 'vscode';
+import { window, Terminal, TerminalVirtualProcess, EventEmitter, TerminalDimensions, workspace, ConfigurationTarget } from 'vscode';
 import { doesNotThrow, equal, ok } from 'assert';
 
 suite('window namespace tests', () => {
-	(process.platform === 'win32' ? suite.skip /* https://github.com/microsoft/vscode/issues/75689 */ : suite)('Terminal', () => {
+	suiteSetup(async () => {
+		// Disable conpty in integration tests because of https://github.com/microsoft/vscode/issues/76548
+		await workspace.getConfiguration('terminal.integrated').update('windowsEnableConpty', false, ConfigurationTarget.Global);
+	});
+	suite('Terminal', () => {
 		test('sendText immediately after createTerminal should not throw', (done) => {
 			const reg1 = window.onDidOpenTerminal(term => {
 				equal(terminal, term);
@@ -266,27 +270,6 @@ suite('window namespace tests', () => {
 				window.createTerminal({ name: 'c', virtualProcess });
 			});
 
-			test('should get dimensions event when shown', (done) => {
-				const reg1 = window.onDidOpenTerminal(term => {
-					reg1.dispose();
-					equal(terminal, term);
-					term.show();
-				});
-				const virtualProcess: TerminalVirtualProcess = {
-					onDidWrite: new EventEmitter<string>().event,
-					setDimensions: dimensions => {
-						ok(dimensions.columns > 0);
-						ok(dimensions.rows > 0);
-						const reg2 = window.onDidCloseTerminal(() => {
-							reg2.dispose();
-							done();
-						});
-						terminal.dispose();
-					}
-				};
-				const terminal = window.createTerminal({ name: 'foo', virtualProcess });
-			});
-
 			test('should fire Terminal.onData on write', (done) => {
 				const reg1 = window.onDidOpenTerminal(term => {
 					equal(terminal, term);
@@ -305,6 +288,26 @@ suite('window namespace tests', () => {
 				const writeEmitter = new EventEmitter<string>();
 				const virtualProcess: TerminalVirtualProcess = {
 					onDidWrite: writeEmitter.event
+				};
+				const terminal = window.createTerminal({ name: 'foo', virtualProcess });
+			});
+
+			test('should fire provide dimensions on start as the terminal has been shown', (done) => {
+				const reg1 = window.onDidOpenTerminal(term => {
+					equal(terminal, term);
+					reg1.dispose();
+				});
+				const virtualProcess: TerminalVirtualProcess = {
+					onDidWrite: new EventEmitter<string>().event,
+					start: (dimensions) => {
+						ok(dimensions!.columns > 0);
+						ok(dimensions!.rows > 0);
+						const reg3 = window.onDidCloseTerminal(() => {
+							reg3.dispose();
+							done();
+						});
+						terminal.dispose();
+					}
 				};
 				const terminal = window.createTerminal({ name: 'foo', virtualProcess });
 			});

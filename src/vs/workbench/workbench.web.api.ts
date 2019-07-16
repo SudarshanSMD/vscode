@@ -6,7 +6,8 @@
 import 'vs/workbench/workbench.web.main';
 import { main } from 'vs/workbench/browser/web.main';
 import { UriComponents } from 'vs/base/common/uri';
-import { IUserDataProvider } from 'vs/workbench/services/userData/common/userData';
+import { IFileSystemProvider } from 'vs/platform/files/common/files';
+import { IRequestOptions, IRequestContext } from 'vs/platform/request/common/request';
 
 export interface IWorkbenchConstructionOptions {
 
@@ -36,7 +37,13 @@ export interface IWorkbenchConstructionOptions {
 	 * Experimental: The userDataProvider is used to handle user specific application
 	 * state like settings, keybindings, UI state (e.g. opened editors) and snippets.
 	 */
-	userDataProvider?: IUserDataProvider;
+	userDataProvider?: IFileSystemProvider;
+
+	/**
+	 * Experimental: Optional request handler to handle http requests.
+	 * In case not provided, workbench uses <code>XMLHttpRequest</code>.
+	 */
+	requestHandler?: (requestOptions: IRequestOptions) => Promise<IRequestContext>;
 }
 
 /**
