@@ -6,7 +6,7 @@
 import * as nls from 'vs/nls';
 import { Emitter } from 'vs/base/common/event';
 import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
-import { IDisposable, dispose, DisposableStore } from 'vs/base/common/lifecycle';
+import { DisposableStore } from 'vs/base/common/lifecycle';
 import { URI } from 'vs/base/common/uri';
 import { RawContextKey, IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
 import { IMarker, IMarkerService, MarkerSeverity } from 'vs/platform/markers/common/markers';
@@ -32,7 +32,7 @@ class MarkerModel {
 	private readonly _editor: ICodeEditor;
 	private _markers: IMarker[];
 	private _nextIdx: number;
-	private _toUnbind: IDisposable[];
+	private readonly _toUnbind = new DisposableStore();
 	private _ignoreSelectionChange: boolean;
 	private readonly _onCurrentMarkerChanged: Emitter<IMarker | undefined>;
 	private readonly _onMarkerSetChanged: Emitter<MarkerModel>;
@@ -41,15 +41,14 @@ class MarkerModel {
 		this._editor = editor;
 		this._markers = [];
 		this._nextIdx = -1;
-		this._toUnbind = [];
 		this._ignoreSelectionChange = false;
 		this._onCurrentMarkerChanged = new Emitter<IMarker>();
 		this._onMarkerSetChanged = new Emitter<MarkerModel>();
 		this.setMarkers(markers);
 
 		// listen on editor
-		this._toUnbind.push(this._editor.onDidDispose(() => this.dispose()));
-		this._toUnbind.push(this._editor.onDidChangeCursorPosition(() => {
+		this._toUnbind.add(this._editor.onDidDispose(() => this.dispose()));
+		this._toUnbind.add(this._editor.onDidChangeCursorPosition(() => {
 			if (this._ignoreSelectionChange) {
 				return;
 			}
@@ -190,7 +189,7 @@ class MarkerModel {
 	}
 
 	public dispose(): void {
-		this._toUnbind = dispose(this._toUnbind);
+		this._toUnbind.dispose();
 	}
 }
 
@@ -249,8 +248,8 @@ export class MarkerController implements editorCommon.IEditorContribution {
 		const prevMarkerKeybinding = this._keybindingService.lookupKeybinding(PrevMarkerAction.ID);
 		const nextMarkerKeybinding = this._keybindingService.lookupKeybinding(NextMarkerAction.ID);
 		const actions = [
-			new Action(PrevMarkerAction.ID, PrevMarkerAction.LABEL + (prevMarkerKeybinding ? ` (${prevMarkerKeybinding.getLabel()})` : ''), 'show-previous-problem chevron-up', this._model.canNavigate(), async () => { if (this._model) { this._model.move(false, true); } }),
-			new Action(NextMarkerAction.ID, NextMarkerAction.LABEL + (nextMarkerKeybinding ? ` (${nextMarkerKeybinding.getLabel()})` : ''), 'show-next-problem chevron-down', this._model.canNavigate(), async () => { if (this._model) { this._model.move(true, true); } })
+			new Action(PrevMarkerAction.ID, PrevMarkerAction.LABEL + (prevMarkerKeybinding ? ` (${prevMarkerKeybinding.getLabel()})` : ''), 'show-previous-problem codicon-chevron-up', this._model.canNavigate(), async () => { if (this._model) { this._model.move(false, true); } }),
+			new Action(NextMarkerAction.ID, NextMarkerAction.LABEL + (nextMarkerKeybinding ? ` (${nextMarkerKeybinding.getLabel()})` : ''), 'show-next-problem codicon-chevron-down', this._model.canNavigate(), async () => { if (this._model) { this._model.move(true, true); } })
 		];
 		this._widget = new MarkerNavigationWidget(this._editor, actions, this._themeService);
 		this._widgetVisible.set(true);

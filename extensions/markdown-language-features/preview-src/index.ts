@@ -6,7 +6,7 @@
 import { ActiveLineMarker } from './activeLineMarker';
 import { onceDocumentLoaded } from './events';
 import { createPosterForVsCode } from './messaging';
-import { getEditorLineNumberForPageOffset, scrollToRevealSourceLine } from './scroll-sync';
+import { getEditorLineNumberForPageOffset, scrollToRevealSourceLine, getLineElementForFragment } from './scroll-sync';
 import { getSettings, getData } from './settings';
 import throttle = require('lodash.throttle');
 
@@ -19,7 +19,7 @@ const settings = getSettings();
 const vscode = acquireVsCodeApi();
 
 // Set VS Code state
-let state = getData<{ line: number }>('data-state');
+let state = getData<{ line: number, fragment: string }>('data-state');
 vscode.setState(state);
 
 const messaging = createPosterForVsCode(vscode);
@@ -34,10 +34,19 @@ window.onload = () => {
 onceDocumentLoaded(() => {
 	if (settings.scrollPreviewWithEditor) {
 		setTimeout(() => {
-			const initialLine = +settings.line;
-			if (!isNaN(initialLine)) {
-				scrollDisabled = true;
-				scrollToRevealSourceLine(initialLine);
+			// Try to scroll to fragment if available
+			if (state.fragment) {
+				const element = getLineElementForFragment(state.fragment);
+				if (element) {
+					scrollDisabled = true;
+					scrollToRevealSourceLine(element.line);
+				}
+			} else {
+				const initialLine = +settings.line;
+				if (!isNaN(initialLine)) {
+					scrollDisabled = true;
+					scrollToRevealSourceLine(initialLine);
+				}
 			}
 		}, 0);
 	}
@@ -132,7 +141,11 @@ document.addEventListener('click', event => {
 				break;
 			}
 			if (node.href.startsWith('file://') || node.href.startsWith('vscode-resource:') || node.href.startsWith(settings.webviewResourceRoot)) {
-				const [path, fragment] = node.href.replace(/^(file:\/\/|vscode-resource:)/i, '').replace(new RegExp(`^${escapeRegExp(settings.webviewResourceRoot)}`)).split('#');
+				const [path, fragment] = node.href
+					.replace(/^file:\/\//i, '')
+					.replace(/^vscode-resource:\/\/[^\/]+\//i, '')
+					.replace(new RegExp(`^${escapeRegExp(settings.webviewResourceRoot)}`))
+					.split('#');
 				messaging.postMessage('clickLink', { path, fragment });
 				event.preventDefault();
 				event.stopPropagation();
@@ -144,20 +157,18 @@ document.addEventListener('click', event => {
 	}
 }, true);
 
-if (settings.scrollEditorWithPreview) {
-	window.addEventListener('scroll', throttle(() => {
-		if (scrollDisabled) {
-			scrollDisabled = false;
-		} else {
-			const line = getEditorLineNumberForPageOffset(window.scrollY);
-			if (typeof line === 'number' && !isNaN(line)) {
-				messaging.postMessage('revealLine', { line });
-				state.line = line;
-				vscode.setState(state);
-			}
+window.addEventListener('scroll', throttle(() => {
+	if (scrollDisabled) {
+		scrollDisabled = false;
+	} else {
+		const line = getEditorLineNumberForPageOffset(window.scrollY);
+		if (typeof line === 'number' && !isNaN(line)) {
+			messaging.postMessage('revealLine', { line });
+			state.line = line;
+			vscode.setState(state);
 		}
-	}, 50));
-}
+	}
+}, 50));
 
 function escapeRegExp(text: string) {
 	return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');

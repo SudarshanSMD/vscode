@@ -7,7 +7,7 @@ import { URI } from 'vs/base/common/uri';
 import { Event, Emitter } from 'vs/base/common/event';
 import { IDecorationsService, IDecoration, IResourceDecorationChangeEvent, IDecorationsProvider, IDecorationData } from './decorations';
 import { TernarySearchTree } from 'vs/base/common/map';
-import { Disposable, IDisposable, toDisposable } from 'vs/base/common/lifecycle';
+import { Disposable, IDisposable, toDisposable, dispose } from 'vs/base/common/lifecycle';
 import { isThenable } from 'vs/base/common/async';
 import { LinkedList } from 'vs/base/common/linkedList';
 import { createStyleSheet, createCSSRule, removeCSSRulesContainingSelector } from 'vs/base/browser/dom';
@@ -75,9 +75,10 @@ class DecorationRule {
 		}
 
 		// bubble badge
+		// TODO @misolori update bubble badge to use class name instead of unicode
 		createCSSRule(
 			`.${this.bubbleBadgeClassName}::after`,
-			`content: "\uf052"; color: ${getColor(theme, color)}; font-family: octicons; font-size: 14px; padding-right: 14px; opacity: 0.4;`,
+			`content: "\uf052"; color: ${getColor(theme, color)}; font-family: octicons; font-size: 14px; padding-right: 10px; opacity: 0.4;`,
 			element
 		);
 	}
@@ -144,17 +145,7 @@ class DecorationStyles extends Disposable {
 		return {
 			labelClassName,
 			badgeClassName,
-			tooltip,
-			update: (replace) => {
-				let newData = data.slice();
-				for (let i = 0; i < newData.length; i++) {
-					if (newData[i].source === replace.source) {
-						// replace
-						newData[i] = replace;
-					}
-				}
-				return this.asDecoration(newData, onlyChildren);
-			}
+			tooltip
 		};
 	}
 
@@ -181,7 +172,7 @@ class DecorationStyles extends Disposable {
 			if (value.isUnused()) {
 				let remove: boolean = false;
 				if (Array.isArray(data)) {
-					remove = data.some(data => !usedDecorations.has(DecorationRule.keyOf(data)));
+					remove = data.every(data => !usedDecorations.has(DecorationRule.keyOf(data)));
 				} else if (!usedDecorations.has(DecorationRule.keyOf(data))) {
 					remove = true;
 				}
@@ -334,14 +325,15 @@ class DecorationProviderWrapper {
 	}
 }
 
-export class FileDecorationsService extends Disposable implements IDecorationsService {
+export class FileDecorationsService implements IDecorationsService {
 
-	_serviceBrand: any;
+	_serviceBrand: undefined;
 
 	private readonly _data = new LinkedList<DecorationProviderWrapper>();
-	private readonly _onDidChangeDecorationsDelayed = this._register(new Emitter<URI | URI[]>());
-	private readonly _onDidChangeDecorations = this._register(new Emitter<IResourceDecorationChangeEvent>());
+	private readonly _onDidChangeDecorationsDelayed = new Emitter<URI | URI[]>();
+	private readonly _onDidChangeDecorations = new Emitter<IResourceDecorationChangeEvent>();
 	private readonly _decorationStyles: DecorationStyles;
+	private readonly _disposables: IDisposable[];
 
 	readonly onDidChangeDecorations: Event<IResourceDecorationChangeEvent> = Event.any(
 		this._onDidChangeDecorations.event,
@@ -355,17 +347,27 @@ export class FileDecorationsService extends Disposable implements IDecorationsSe
 	constructor(
 		@IThemeService themeService: IThemeService
 	) {
-		super();
-		this._decorationStyles = this._register(new DecorationStyles(themeService));
+		this._decorationStyles = new DecorationStyles(themeService);
 
 		// every so many events we check if there are
 		// css styles that we don't need anymore
 		let count = 0;
-		this._register(this.onDidChangeDecorations(() => {
+		let reg = this.onDidChangeDecorations(() => {
 			if (++count % 17 === 0) {
 				this._decorationStyles.cleanUp(this._data.iterator());
 			}
-		}));
+		});
+
+		this._disposables = [
+			reg,
+			this._decorationStyles
+		];
+	}
+
+	dispose(): void {
+		dispose(this._disposables);
+		dispose(this._onDidChangeDecorations);
+		dispose(this._onDidChangeDecorationsDelayed);
 	}
 
 	registerDecorationsProvider(provider: IDecorationsProvider): IDisposable {
@@ -391,7 +393,7 @@ export class FileDecorationsService extends Disposable implements IDecorationsSe
 		});
 	}
 
-	getDecoration(uri: URI, includeChildren: boolean, overwrite?: IDecorationData): IDecoration | undefined {
+	getDecoration(uri: URI, includeChildren: boolean): IDecoration | undefined {
 		let data: IDecorationData[] = [];
 		let containsChildren: boolean = false;
 		for (let iter = this._data.iterator(), next = iter.next(); !next.done; next = iter.next()) {
@@ -403,22 +405,9 @@ export class FileDecorationsService extends Disposable implements IDecorationsSe
 			});
 		}
 
-		if (data.length === 0) {
-			// nothing, maybe overwrite data
-			if (overwrite) {
-				return this._decorationStyles.asDecoration([overwrite], containsChildren);
-			} else {
-				return undefined;
-			}
-		} else {
-			// result, maybe overwrite
-			let result = this._decorationStyles.asDecoration(data, containsChildren);
-			if (overwrite) {
-				return result.update(overwrite);
-			} else {
-				return result;
-			}
-		}
+		return data.length === 0
+			? undefined
+			: this._decorationStyles.asDecoration(data, containsChildren);
 	}
 }
 function getColor(theme: ITheme, color: string | undefined) {
