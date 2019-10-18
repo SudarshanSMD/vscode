@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { IFrameWebview as WebviewElement } from 'vs/workbench/contrib/webview/browser/webviewElement';
-import { IWebviewService, WebviewOptions, WebviewContentOptions, Webview } from 'vs/workbench/contrib/webview/common/webview';
+import { IFrameWebview } from 'vs/workbench/contrib/webview/browser/webviewElement';
+import { IWebviewService, WebviewContentOptions, WebviewEditorOverlay, WebviewElement, WebviewOptions } from 'vs/workbench/contrib/webview/browser/webview';
+import { DynamicWebviewEditorOverlay } from './dynamicWebviewEditorOverlay';
+import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
 
 export class WebviewService implements IWebviewService {
-	_serviceBrand: any;
+	_serviceBrand: undefined;
 
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
@@ -18,10 +20,17 @@ export class WebviewService implements IWebviewService {
 		id: string,
 		options: WebviewOptions,
 		contentOptions: WebviewContentOptions
-	): Webview {
-		return this._instantiationService.createInstance(WebviewElement,
-			id,
-			options,
-			contentOptions);
+	): WebviewElement {
+		return this._instantiationService.createInstance(IFrameWebview, id, options, contentOptions);
+	}
+
+	createWebviewEditorOverlay(
+		id: string,
+		options: WebviewOptions,
+		contentOptions: WebviewContentOptions,
+	): WebviewEditorOverlay {
+		return this._instantiationService.createInstance(DynamicWebviewEditorOverlay, id, options, contentOptions);
 	}
 }
+
+registerSingleton(IWebviewService, WebviewService, true);
