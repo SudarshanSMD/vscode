@@ -13,9 +13,9 @@ jobs:
     displayName: 'Install Node.js'
 
 
-  - task: CmdLine@2
-    inputs:
-      script: 'node --max-old-space-size=16384'
+#  - task: CmdLine@2
+#    inputs:
+#      script: 'node --max-old-space-size=16384'
 
   - script: |
       yarn install
