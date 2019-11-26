@@ -14,10 +14,10 @@ jobs:
     inputs:
       script: 'node --max-old-space-size=12048'
 
-  - task: CmdLine@2
+  - task: Npm@1
     inputs:
-      script: 'export NODE_OPTIONS=--max_old_space_size=12048'
-
+      command: 'custom'
+      customCommand: 'export NODE_OPTIONS=--max_old_space_size=12048'
 
   - script: |
       yarn install
