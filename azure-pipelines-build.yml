@@ -12,7 +12,7 @@ jobs:
 
   - task: CmdLine@2
     inputs:
-      script: 'node --max-old-space-size=6144 ./node_modules/@angular/cli/bin/ng build --configuration=$TARGETENV'
+      script: 'node --max-old-space-size=6144'
 
 
   - script: |
