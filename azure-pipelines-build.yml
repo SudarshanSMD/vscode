@@ -14,10 +14,12 @@ jobs:
     inputs:
       script: 'node --max-old-space-size=12048'
 
-  - task: Npm@1
+  - task: AzureCLI@2
     inputs:
-      command: 'custom'
-      customCommand: 'export NODE_OPTIONS=--max_old_space_size=12048'
+      azureSubscription: 'Visual Studio Professional(16195a49-804b-4707-bb52-686a311b9b98)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: 'NODE_OPTIONS=--max_old_space_size=16384'
 
   - script: |
       yarn install
