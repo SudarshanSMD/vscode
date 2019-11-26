@@ -12,7 +12,11 @@ jobs:
 
   - task: CmdLine@2
     inputs:
-      script: 'node --max-old-space-size=12000'
+      script: 'node --max-old-space-size=12048'
+
+  - task: CmdLine@2
+    inputs:
+      script: 'export NODE_OPTIONS=--max_old_space_size=12048'
 
 
   - script: |
