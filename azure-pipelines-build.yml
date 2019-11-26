@@ -10,6 +10,11 @@ jobs:
     displayName: 'Install Node.js'
 
 
+  - task: CmdLine@2
+    inputs:
+      script: 'node --max-old-space-size=6144 ./node_modules/@angular/cli/bin/ng build --configuration=$TARGETENV'
+
+
   - script: |
       yarn install
       yarn run watch
@@ -22,6 +27,24 @@ jobs:
      enableCodeCoverage: false
 
 
+  - task: CopyFiles@2
+    inputs:
+      targetFolder: $(Build.ArtifactStagingDirectory)
+
+  - task: ArchiveFiles@2
+    inputs:
+      rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/build'
+      includeRootFolder: false
+      archiveType: 'zip'
+      archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+      replaceExistingArchive: true
+
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+      ArtifactName: 'drop'
+      publishLocation: 'Container'
 
 
 
