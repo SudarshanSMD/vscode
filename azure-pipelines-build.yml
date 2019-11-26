@@ -1,3 +1,6 @@
+variables:
+  NODE_OPTIONS: '--max_old_space_size=16384'
+
 jobs:
 - job: Windows
   pool:
@@ -12,14 +15,7 @@ jobs:
 
   - task: CmdLine@2
     inputs:
-      script: 'node --max-old-space-size=12048'
-
-  - task: AzureCLI@2
-    inputs:
-      azureSubscription: 'Visual Studio Professional(16195a49-804b-4707-bb52-686a311b9b98)'
-      scriptType: 'bash'
-      scriptLocation: 'inlineScript'
-      inlineScript: 'NODE_OPTIONS=--max_old_space_size=16384'
+      script: 'node --max-old-space-size=16384'
 
   - script: |
       yarn install
