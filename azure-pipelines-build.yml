@@ -47,7 +47,17 @@ jobs:
       ArtifactName: 'drop'
       publishLocation: 'Container'
 
-
+  - task: GitHubRelease@1
+    inputs:
+      gitHubConnection: 'github.com_SudarshanSMD'
+      repositoryName: '$(Build.Repository.Name)'
+      action: 'create'
+      target: '$(Build.SourceVersion)'
+      tagSource: 'gitTag'
+      releaseNotesSource: 'inline'
+      releaseNotesInline: 'Test release'
+      changeLogCompareToRelease: 'lastFullRelease'
+      changeLogType: 'commitBased'
 
 
 #- job: macOS
