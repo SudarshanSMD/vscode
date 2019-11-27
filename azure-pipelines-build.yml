@@ -12,11 +12,6 @@ jobs:
       versionSpec: '10.x'
     displayName: 'Install Node.js'
 
-
-#  - task: CmdLine@2
-#    inputs:
-#      script: 'node --max-old-space-size=16384'
-
   - script: |
       yarn install
       yarn run watch
@@ -31,6 +26,7 @@ jobs:
 
   - task: CopyFiles@2
     inputs:
+      SourceFolder: $(Agent.BuildDirectory)
       targetFolder: $(Build.ArtifactStagingDirectory)
 
   - task: ArchiveFiles@2
