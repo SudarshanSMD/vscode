@@ -24,9 +24,12 @@ jobs:
      enableCodeCoverage: false
 
 
+# Copying the files to Staging directory. Note that for windows build 'VSCode-win32-x64' folder is created,
+# hence we copying the files under 'VSCode-win32-x64' directory
   - task: CopyFiles@2
     inputs:
       SourceFolder: $(Agent.BuildDirectory)
+      Contents: '**\VSCode-win32-x64\**'
       targetFolder: $(Build.ArtifactStagingDirectory)
 
   - task: ArchiveFiles@2
@@ -34,13 +37,13 @@ jobs:
       rootFolderOrFile: '$(Build.ArtifactStagingDirectory)'
       #includeRootFolder: false
       archiveType: 'zip'
-      archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+      archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
       replaceExistingArchive: true
 
 
   - task: PublishBuildArtifacts@1
     inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
       ArtifactName: 'drop'
       publishLocation: 'Container'
 
