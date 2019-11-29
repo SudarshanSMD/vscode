@@ -22,12 +22,10 @@ jobs:
       yarn run watch
     displayName: 'yarn install and run watch'
 
-#  - task: Npm@1
-#    displayName: 'npm install'
-#    inputs:
-#      command: install
-#      workingDir: '$(Build.SourcesDirectory)'
-#      verbose: false
+  - task: Npm@1
+    inputs:
+      command: 'custom'
+      customCommand: 'install gulp -g'
 
   - task: Gulp@1
     inputs:
