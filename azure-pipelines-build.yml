@@ -64,7 +64,6 @@ jobs:
       changeLogCompareToRelease: 'lastFullRelease'
       changeLogType: 'commitBased'
 
-
 #- job: macOS
 #  pool:
 #    vmImage: macOS 10.13
