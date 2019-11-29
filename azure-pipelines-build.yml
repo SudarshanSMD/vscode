@@ -36,15 +36,16 @@ jobs:
 
 # Copying the files to Staging directory. Note that for windows build 'VSCode-win32-x64' folder is created,
 # hence we copying the files under 'VSCode-win32-x64' directory
-  - task: CopyFiles@2
-    inputs:
-      SourceFolder: $(Agent.BuildDirectory)
-      #Contents: '**\VSCode-win32-x64\**'
-      targetFolder: $(Build.ArtifactStagingDirectory)
+  #- task: CopyFiles@2
+  #  inputs:
+  #    SourceFolder: $(Agent.BuildDirectory)
+  #    #Contents: '**\VSCode-win32-x64\**'
+  #    targetFolder: $(Build.ArtifactStagingDirectory)
 
   - task: ArchiveFiles@2
     inputs:
-      rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64/'
+      #rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64/'
+      rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-win32-x64/'
       includeRootFolder: false
       archiveType: 'zip'
       archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
