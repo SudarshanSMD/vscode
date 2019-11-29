@@ -22,6 +22,8 @@ jobs:
       yarn run watch
     displayName: 'yarn install and run watch'
 
+# installing gulp. This task isn't required when Microsoft Agent is required.
+# This is added for a self hosted agent
   - task: Npm@1
     inputs:
       command: 'custom'
@@ -34,17 +36,11 @@ jobs:
      enableCodeCoverage: false
 
 
-# Copying the files to Staging directory. Note that for windows build 'VSCode-win32-x64' folder is created,
+# Archiving the. Note that for windows build 'VSCode-win32-x64' folder is created,
 # hence we copying the files under 'VSCode-win32-x64' directory
-  #- task: CopyFiles@2
-  #  inputs:
-  #    SourceFolder: $(Agent.BuildDirectory)
-  #    #Contents: '**\VSCode-win32-x64\**'
-  #    targetFolder: $(Build.ArtifactStagingDirectory)
 
   - task: ArchiveFiles@2
     inputs:
-      #rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64/'
       rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-win32-x64/'
       includeRootFolder: false
       archiveType: 'zip'
