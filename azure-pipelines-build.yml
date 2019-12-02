@@ -7,6 +7,7 @@ variables:
 
 jobs:
 - job: Windows
+  # specifying my custom pool. If you don't have one, just set the 'vmImage'
   pool:
     name: default
    # vmImage: VS2017-Win2016
