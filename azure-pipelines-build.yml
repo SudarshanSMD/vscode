@@ -82,8 +82,7 @@ jobs:
 
   - script: |
       yarn install
-      yarn run watch
-    displayName: 'yarn install and run watch'
+    displayName: 'yarn install'
 
 # installing gulp. This task isn't required when Microsoft Agent is required.
 # This is added for a self hosted agent
