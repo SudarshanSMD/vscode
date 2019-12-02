@@ -15,7 +15,7 @@ jobs:
   # specifying my custom pool. If you don't have one, just set the 'vmImage'
   pool:
     name: default
-   # vmImage: VS2017-Win2016
+   #vmImage: VS2017-Win2016
   steps:
 
   - task: NodeTool@0
@@ -34,17 +34,17 @@ jobs:
     inputs:
       command: 'custom'
       customCommand: 'install gulp -g'
+    displayName: 'NPM install Gulp'
 
   - task: Gulp@1
     inputs:
      gulpFile: 'gulpfile.js'
      targets: 'vscode-win32-x64-min'
      enableCodeCoverage: false
-
+    displayName: 'Gulp Task vscode-win32-x64-min'
 
 # Archiving the. Note that for windows build 'VSCode-win32-x64' folder is created,
 # hence we copying the files under 'VSCode-win32-x64' directory
-
   - task: ArchiveFiles@2
     inputs:
       rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-win32-x64/'
@@ -52,14 +52,15 @@ jobs:
       archiveType: 'zip'
       archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
       replaceExistingArchive: true
-
+    displayName: 'Archive the build files'
 
   - task: PublishBuildArtifacts@1
     inputs:
       PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
       ArtifactName: 'drop'
       publishLocation: 'Container'
-
+    displayName: 'Publish archived files'
+    
   - task: GitHubRelease@1
     inputs:
       gitHubConnection: 'github.com_SudarshanSMD'
@@ -95,12 +96,14 @@ jobs:
     inputs:
       command: 'custom'
       customCommand: 'install gulp -g'
+    displayName: 'NPM install Gulp'
 
   - task: Gulp@1
     inputs:
      gulpFile: 'gulpfile.js'
      targets: 'vscode-darwin-min'
      enableCodeCoverage: false
+    displayName: 'Gulp Task vscode-darwin-min'
 
   - task: ArchiveFiles@2
     inputs:
@@ -109,10 +112,12 @@ jobs:
       archiveType: 'zip'
       archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
       replaceExistingArchive: true
+    displayName: 'Archive the build files'
 
   - task: PublishBuildArtifacts@1
     inputs:
       PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
       ArtifactName: 'drop'
       publishLocation: 'Container'
+    displayName: 'Publish archived files'
 #####################################################################################################
