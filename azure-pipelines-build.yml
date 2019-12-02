@@ -86,10 +86,10 @@ jobs:
 
 # installing gulp. This task isn't required when Microsoft Agent is required.
 # This is added for a self hosted agent
-#  - task: Npm@1
-#    inputs:
-#      command: 'custom'
-#      customCommand: 'install gulp -g'
+  - task: Npm@1
+    inputs:
+      command: 'custom'
+      customCommand: 'install gulp -g'
 
   - task: Gulp@1
     inputs:
