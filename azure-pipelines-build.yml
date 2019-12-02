@@ -68,8 +68,51 @@ jobs:
       changeLogCompareToRelease: 'lastFullRelease'
       changeLogType: 'commitBased'
 
-#- job: macOS
-#  pool:
-#    vmImage: macOS 10.13
-#  steps:
-#  - template: build/azure-pipelines/darwin/continuous-build-darwin.yml#
+
+# MAC OS: DARWIN build
+- job: macOS
+  pool:
+    vmImage: macOS 10.13
+  steps:
+
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '10.x'
+    displayName: 'Install Node.js'
+
+  - script: |
+      yarn install
+      yarn run watch
+    displayName: 'yarn install and run watch'
+
+# installing gulp. This task isn't required when Microsoft Agent is required.
+# This is added for a self hosted agent
+#  - task: Npm@1
+#    inputs:
+#      command: 'custom'
+#      customCommand: 'install gulp -g'
+
+  - task: Gulp@1
+    inputs:
+     gulpFile: 'gulpfile.js'
+     targets: 'vscode-darwin-min'
+     enableCodeCoverage: false
+
+
+# Archiving the. Note that for windows build 'VSCode-win32-x64' folder is created,
+# hence we copying the files under 'VSCode-win32-x64' directory
+
+  - task: ArchiveFiles@2
+    inputs:
+      rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-darwin/'
+      includeRootFolder: false
+      archiveType: 'zip'
+      archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
+      replaceExistingArchive: true
+
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
+      ArtifactName: 'drop'
+      publishLocation: 'Container'
