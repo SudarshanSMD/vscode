@@ -7,117 +7,145 @@ variables:
   InitialReleaseTagNumber: 1
   IncrementReleaseTagNumber: $[counter(variables['InitialReleaseTagNumber'], 0)]
 
-jobs:
-#####################################################################################################
-#####                              Windows win32-x64                                            #####
-#####################################################################################################
-- job: Windows
-  # specifying my custom pool. If you don't have one, just set the 'vmImage'
-  pool:
-    name: default
-   #vmImage: VS2017-Win2016
-  steps:
+stages:
+#BUILD Stage
+- stage: BuildWindows
+  jobs:
+  #####################################################################################################
+  #####                              Windows win32-x64                                            #####
+  #####################################################################################################
+  - job: Windows
+    # specifying my custom pool. If you don't have one, just set the 'vmImage'
+    pool:
+      name: default
+    #vmImage: VS2017-Win2016
+    steps:
 
-  - task: NodeTool@0
-    inputs:
-      versionSpec: '10.x'
-    displayName: 'Install Node.js'
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '10.x'
+      displayName: 'Install Node.js'
 
-  - script: |
-      yarn install
-      yarn run watch
-    displayName: 'yarn install and run watch'
+    - script: |
+        yarn install
+        yarn run watch
+      displayName: 'yarn install and run watch'
 
-# installing gulp. This task isn't required when Microsoft Agent is required.
-# This is added for a self hosted agent
-  - task: Npm@1
-    inputs:
-      command: 'custom'
-      customCommand: 'install gulp -g'
-    displayName: 'NPM install Gulp'
+  # installing gulp. This task isn't required when Microsoft Agent is required.
+  # This is added for a self hosted agent
+    - task: Npm@1
+      inputs:
+        command: 'custom'
+        customCommand: 'install gulp -g'
+      displayName: 'NPM install Gulp'
 
-  - task: Gulp@1
-    inputs:
-     gulpFile: 'gulpfile.js'
-     targets: 'vscode-win32-x64-min'
-     enableCodeCoverage: false
-    displayName: 'Gulp Task vscode-win32-x64-min'
+    - task: Gulp@1
+      inputs:
+        gulpFile: 'gulpfile.js'
+        targets: 'vscode-win32-x64-min'
+        enableCodeCoverage: false
+      displayName: 'Gulp Task vscode-win32-x64-min'
 
-# Archiving the. Note that for windows build 'VSCode-win32-x64' folder is created,
-# hence we copying the files under 'VSCode-win32-x64' directory
-  - task: ArchiveFiles@2
-    inputs:
-      rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-win32-x64/'
-      includeRootFolder: false
-      archiveType: 'zip'
-      archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
-      replaceExistingArchive: true
-    displayName: 'Archive the build files'
+  # Archiving the. Note that for windows build 'VSCode-win32-x64' folder is created,
+  # hence we copying the files under 'VSCode-win32-x64' directory
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-win32-x64/'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
+        replaceExistingArchive: true
+      displayName: 'Archive the build files'
 
-  - task: PublishBuildArtifacts@1
-    inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
-      ArtifactName: 'drop'
-      publishLocation: 'Container'
-    displayName: 'Publish archived files'
-    
-  - task: GitHubRelease@1
-    inputs:
-      gitHubConnection: 'github.com_SudarshanSMD'
-      repositoryName: '$(Build.Repository.Name)'
-      action: 'create'
-      target: '$(Build.SourceVersion)'
-     # tagSource: 'gitTag'
-      tag: '$(MajorVersion).$(MinorVersion).$(IncrementReleaseTagNumber)'
-      releaseNotesSource: 'inline'
-      releaseNotesInline: 'Test Release'
-      changeLogCompareToRelease: 'lastFullRelease'
-      changeLogType: 'commitBased'
-#####################################################################################################
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+      displayName: 'Publish archived files'
+      
+    - task: GitHubRelease@1
+      inputs:
+        gitHubConnection: 'github.com_SudarshanSMD'
+        repositoryName: '$(Build.Repository.Name)'
+        action: 'create'
+        target: '$(Build.SourceVersion)'
+      # tagSource: 'gitTag'
+        tag: '$(MajorVersion).$(MinorVersion).$(IncrementReleaseTagNumber)'
+        releaseNotesSource: 'inline'
+        releaseNotesInline: 'Test Release'
+        changeLogCompareToRelease: 'lastFullRelease'
+        changeLogType: 'commitBased'
+  #####################################################################################################
 
-#####################################################################################################
-#####                              Mac OS darwin                                                #####
-#####################################################################################################
-- job: macOS
-  pool:
-    vmImage: macOS 10.13
-  steps:
 
-  - task: NodeTool@0
-    inputs:
-      versionSpec: '10.x'
-    displayName: 'Install Node.js'
+  #####################################################################################################
+  #####                              Mac OS darwin                                                #####
+  #####################################################################################################
+- stage: BuildMacOs
+  jobs:
+  - job: macOS
+    pool:
+      vmImage: macOS 10.13
+    steps:
 
-  - script: |
-      yarn install
-    displayName: 'yarn install'
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '10.x'
+      displayName: 'Install Node.js'
 
-  - task: Npm@1
-    inputs:
-      command: 'custom'
-      customCommand: 'install gulp -g'
-    displayName: 'NPM install Gulp'
+    - script: |
+        yarn install
+      displayName: 'yarn install'
 
-  - task: Gulp@1
-    inputs:
-     gulpFile: 'gulpfile.js'
-     targets: 'vscode-darwin-min'
-     enableCodeCoverage: false
-    displayName: 'Gulp Task vscode-darwin-min'
+    - task: Npm@1
+      inputs:
+        command: 'custom'
+        customCommand: 'install gulp -g'
+      displayName: 'NPM install Gulp'
 
-  - task: ArchiveFiles@2
-    inputs:
-      rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-darwin/'
-      includeRootFolder: false
-      archiveType: 'zip'
-      archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
-      replaceExistingArchive: true
-    displayName: 'Archive the build files'
+    - task: Gulp@1
+      inputs:
+        gulpFile: 'gulpfile.js'
+        targets: 'vscode-darwin-min'
+        enableCodeCoverage: false
+      displayName: 'Gulp Task vscode-darwin-min'
 
-  - task: PublishBuildArtifacts@1
-    inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
-      ArtifactName: 'drop'
-      publishLocation: 'Container'
-    displayName: 'Publish archived files'
-#####################################################################################################
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-darwin/'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
+        replaceExistingArchive: true
+      displayName: 'Archive the build files'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+      displayName: 'Publish archived files'
+  #####################################################################################################
+
+# DEPLOY STAGE
+- stage: PushWindowsBuild
+  dependsOn: BuildWindows
+  jobs:
+  - job: PushWindowsBuild
+  
+    steps:
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+            $WebURL = "https://rapidcircle1com.sharepoint.com/teams/Everyone"
+            $DocLibName = "Technical" 
+            $FilePath = "$(Build.ArtifactStagingDirectory)/VSCode-win32-x64_$(Build.BuildId).zip"
+            $Web = Get-SPWeb $WebURL 
+            $List = $Web.GetFolder($DocLibName) 
+            $Files = $List.Files
+            $FileName = $FilePath.Substring($FilePath.LastIndexOf("\")+1)
+            $File= Get-ChildItem $FilePath
+            $Files.Add($DocLibName +"/" + $FileName,$File.OpenRead(),$false) 
+            $web.Dispose()
