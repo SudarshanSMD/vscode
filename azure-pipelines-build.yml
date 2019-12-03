@@ -143,6 +143,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
+            Register-PSRepository -Name "PSGallery" –SourceLocation "https://www.powershellgallery.com/api/v2/" -InstallationPolicy Trusted
             Install-PackageProvider -Name NuGet -Force -Scope CurrentUser
             Install-Module SharePointPnPPowerShellOnline -Force -Verbose -Scope CurrentUser
             Copy-PnPFile -SourceUrl '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip' -TargetUrl 'https://rapidcircle1com.sharepoint.com/:u:/r/teams/Everyone/Gedeelde%20%20documenten/Technical/VSCode-darwin_$(Build.BuildId).zip' -OverwriteIfAlreadyExists
