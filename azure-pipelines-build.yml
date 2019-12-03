@@ -83,51 +83,51 @@ stages:
 #####################################################################################################
 #####                              Mac OS darwin                                                #####
 #####################################################################################################
-- stage: BuildMacOs
-  dependsOn: []
-  jobs:
-  - job: macOS
-    pool:
-      vmImage: macOS 10.13
-    steps:
+# - stage: BuildMacOs
+#   dependsOn: []
+#   jobs:
+#   - job: macOS
+#     pool:
+#       vmImage: macOS 10.13
+#     steps:
 
-    - task: NodeTool@0
-      inputs:
-        versionSpec: '10.x'
-      displayName: 'Install Node.js'
+#     - task: NodeTool@0
+#       inputs:
+#         versionSpec: '10.x'
+#       displayName: 'Install Node.js'
 
-    - script: |
-        yarn install
-      displayName: 'yarn install'
+#     - script: |
+#         yarn install
+#       displayName: 'yarn install'
 
-    - task: Npm@1
-      inputs:
-        command: 'custom'
-        customCommand: 'install gulp -g'
-      displayName: 'NPM install Gulp'
+#     - task: Npm@1
+#       inputs:
+#         command: 'custom'
+#         customCommand: 'install gulp -g'
+#       displayName: 'NPM install Gulp'
 
-    - task: Gulp@1
-      inputs:
-        gulpFile: 'gulpfile.js'
-        targets: 'vscode-darwin-min'
-        enableCodeCoverage: false
-      displayName: 'Gulp Task vscode-darwin-min'
+#     - task: Gulp@1
+#       inputs:
+#         gulpFile: 'gulpfile.js'
+#         targets: 'vscode-darwin-min'
+#         enableCodeCoverage: false
+#       displayName: 'Gulp Task vscode-darwin-min'
 
-    - task: ArchiveFiles@2
-      inputs:
-        rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-darwin/'
-        includeRootFolder: false
-        archiveType: 'zip'
-        archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
-        replaceExistingArchive: true
-      displayName: 'Archive the build files'
+#     - task: ArchiveFiles@2
+#       inputs:
+#         rootFolderOrFile: '$(Agent.BuildDirectory)/VSCode-darwin/'
+#         includeRootFolder: false
+#         archiveType: 'zip'
+#         archiveFile: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
+#         replaceExistingArchive: true
+#       displayName: 'Archive the build files'
 
-    - task: PublishBuildArtifacts@1
-      inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
-        ArtifactName: 'drop'
-        publishLocation: 'Container'
-      displayName: 'Publish archived files'
+#     - task: PublishBuildArtifacts@1
+#       inputs:
+#         PathtoPublish: '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip'
+#         ArtifactName: 'drop'
+#         publishLocation: 'Container'
+#       displayName: 'Publish archived files'
 #####################################################################################################
 
 #####################################################################################################
@@ -143,5 +143,5 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-            Copy-PnPFile -SourceUrl '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip' -TargetUrl 'https://rapidcircle1com.sharepoint.com/:u:/r/teams/Everyone/Gedeelde%20%20documenten/Technical/VSCode-darwin_$(Build.BuildId).zip' -OverwriteIfAlreadyExists
+             Copy-PnPFile -SourceUrl '$(Build.ArtifactStagingDirectory)/VSCode-darwin_$(Build.BuildId).zip' -TargetUrl 'https://rapidcircle1com.sharepoint.com/:u:/r/teams/Everyone/Gedeelde%20%20documenten/Technical/VSCode-darwin_$(Build.BuildId).zip' -OverwriteIfAlreadyExists
 #####################################################################################################
