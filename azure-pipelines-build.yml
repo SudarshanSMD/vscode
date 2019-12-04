@@ -143,6 +143,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
+            Register-PSRepository -Default -Name "PSGallery" -InstallationPolicy Trusted
             Install-PackageProvider Nuget -ForceBootstrap -Force
             Install-Module SharePointPnPPowerShellOnline -Scope CurrentUser -Confirm:$false -Force
             Import-Module SharePointPnPPowerShellOnline
