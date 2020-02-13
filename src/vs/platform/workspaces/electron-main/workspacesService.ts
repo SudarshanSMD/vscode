@@ -52,7 +52,7 @@ export class WorkspacesService implements AddFirstParameterToFunctions<IWorkspac
 
 	async getRecentlyOpened(windowId: number): Promise<IRecentlyOpened> {
 		const window = this.windowsMainService.getWindowById(windowId);
-		if (window) {
+		if (window?.config) {
 			return this.workspacesHistoryMainService.getRecentlyOpened(window.config.workspace, window.config.folderUri, window.config.filesToOpenOrCreate);
 		}
 
@@ -63,8 +63,8 @@ export class WorkspacesService implements AddFirstParameterToFunctions<IWorkspac
 		return this.workspacesHistoryMainService.addRecentlyOpened(recents);
 	}
 
-	async removeFromRecentlyOpened(windowId: number, paths: URI[]): Promise<void> {
-		return this.workspacesHistoryMainService.removeFromRecentlyOpened(paths);
+	async removeRecentlyOpened(windowId: number, paths: URI[]): Promise<void> {
+		return this.workspacesHistoryMainService.removeRecentlyOpened(paths);
 	}
 
 	async clearRecentlyOpened(windowId: number): Promise<void> {

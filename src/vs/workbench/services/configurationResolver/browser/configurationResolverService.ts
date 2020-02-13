@@ -25,7 +25,7 @@ import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
 
 export abstract class BaseConfigurationResolverService extends AbstractVariableResolverService {
 
-	static INPUT_OR_COMMAND_VARIABLES_PATTERN = /\${((input|command):(.*?))}/g;
+	static readonly INPUT_OR_COMMAND_VARIABLES_PATTERN = /\${((input|command):(.*?))}/g;
 
 	constructor(
 		envVariables: IProcessEnvironment,
@@ -268,22 +268,42 @@ export abstract class BaseConfigurationResolverService extends AbstractVariableR
 					if (!Types.isString(info.description)) {
 						missingAttribute('description');
 					}
-					if (!Types.isStringArray(info.options)) {
+					if (Types.isArray(info.options)) {
+						info.options.forEach(pickOption => {
+							if (!Types.isString(pickOption) && !Types.isString(pickOption.value)) {
+								missingAttribute('value');
+							}
+						});
+					} else {
 						missingAttribute('options');
 					}
-					const picks = new Array<IQuickPickItem>();
+					interface PickStringItem extends IQuickPickItem {
+						value: string;
+					}
+					const picks = new Array<PickStringItem>();
 					info.options.forEach(pickOption => {
-						const item: IQuickPickItem = { label: pickOption };
-						if (pickOption === info.default) {
-							item.description = nls.localize('inputVariable.defaultInputValue', "Default");
+						const value = Types.isString(pickOption) ? pickOption : pickOption.value;
+						const label = Types.isString(pickOption) ? undefined : pickOption.label;
+
+						// If there is no label defined, use value as label
+						const item: PickStringItem = {
+							label: label ? `${label}: ${value}` : value,
+							value: value
+						};
+
+						if (value === info.default) {
+							item.description = nls.localize('inputVariable.defaultInputValue', "(Default)");
 							picks.unshift(item);
 						} else {
 							picks.push(item);
 						}
 					});
-					const pickOptions: IPickOptions<IQuickPickItem> = { placeHolder: info.description };
+					const pickOptions: IPickOptions<PickStringItem> = { placeHolder: info.description, matchOnDetail: true };
 					return this.quickInputService.pick(picks, pickOptions, undefined).then(resolvedInput => {
-						return resolvedInput ? resolvedInput.label : undefined;
+						if (resolvedInput) {
+							return resolvedInput.value;
+						}
+						return undefined;
 					});
 				}
 

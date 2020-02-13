@@ -19,7 +19,15 @@ import { createDecorator } from 'vs/platform/instantiation/common/instantiation'
 export const KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_VISIBLE = new RawContextKey<boolean>('webviewFindWidgetVisible', false);
 export const KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_FOCUSED = new RawContextKey<boolean>('webviewFindWidgetFocused', false);
 
+export const webviewHasOwnEditFunctionsContextKey = 'webviewHasOwnEditFunctions';
+export const webviewHasOwnEditFunctionsContext = new RawContextKey<boolean>(webviewHasOwnEditFunctionsContextKey, false);
+
 export const IWebviewService = createDecorator<IWebviewService>('webviewService');
+
+export interface WebviewIcons {
+	readonly light: URI;
+	readonly dark: URI;
+}
 
 /**
  * Handles the creation of webview elements.
@@ -38,6 +46,8 @@ export interface IWebviewService {
 		options: WebviewOptions,
 		contentOptions: WebviewContentOptions,
 	): WebviewEditorOverlay;
+
+	setIcons(id: string, value: WebviewIcons | undefined): void;
 }
 
 export interface WebviewOptions {
@@ -54,38 +64,37 @@ export interface WebviewContentOptions {
 	readonly enableCommandUris?: boolean;
 }
 
+export interface WebviewExtensionDescription {
+	readonly location: URI;
+	readonly id: ExtensionIdentifier;
+}
+
 export interface Webview extends IDisposable {
 
 	html: string;
 	contentOptions: WebviewContentOptions;
-	extension: {
-		readonly location: URI;
-		readonly id?: ExtensionIdentifier;
-	} | undefined;
+	extension: WebviewExtensionDescription | undefined;
 	initialScrollProgress: number;
 	state: string | undefined;
 
 	readonly onDidFocus: Event<void>;
-	readonly onDidClickLink: Event<URI>;
+	readonly onDidClickLink: Event<string>;
 	readonly onDidScroll: Event<{ scrollYPercentage: number }>;
 	readonly onDidUpdateState: Event<string | undefined>;
 	readonly onMessage: Event<any>;
 	readonly onMissingCsp: Event<ExtensionIdentifier>;
 
 	sendMessage(data: any): void;
-	update(
-		html: string,
-		options: WebviewContentOptions,
-		retainContextWhenHidden: boolean
-	): void;
 
-	layout(): void;
 	focus(): void;
 	reload(): void;
 
 	showFind(): void;
 	hideFind(): void;
 	runFindAction(previous: boolean): void;
+
+	windowDidDragStart(): void;
+	windowDidDragEnd(): void;
 }
 
 export interface WebviewElement extends Webview {
@@ -94,7 +103,7 @@ export interface WebviewElement extends Webview {
 
 export interface WebviewEditorOverlay extends Webview {
 	readonly container: HTMLElement;
-	readonly options: WebviewOptions;
+	options: WebviewOptions;
 
 	claim(owner: any): void;
 	release(owner: any): void;

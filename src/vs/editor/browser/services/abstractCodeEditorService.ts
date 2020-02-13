@@ -70,8 +70,8 @@ export abstract class AbstractCodeEditorService extends Disposable implements IC
 		return Object.keys(this._diffEditors).map(id => this._diffEditors[id]);
 	}
 
-	getFocusedCodeEditor(): ICodeEditor | undefined {
-		let editorWithWidgetFocus: ICodeEditor | undefined;
+	getFocusedCodeEditor(): ICodeEditor | null {
+		let editorWithWidgetFocus: ICodeEditor | null = null;
 
 		const editors = this.listCodeEditors();
 		for (const editor of editors) {
@@ -89,7 +89,7 @@ export abstract class AbstractCodeEditorService extends Disposable implements IC
 		return editorWithWidgetFocus;
 	}
 
-	abstract registerDecorationType(key: string, options: IDecorationRenderOptions, parentTypeKey?: string): void;
+	abstract registerDecorationType(key: string, options: IDecorationRenderOptions, parentTypeKey?: string, editor?: ICodeEditor): void;
 	abstract removeDecorationType(key: string): void;
 	abstract resolveDecorationOptions(decorationTypeKey: string | undefined, writable: boolean): IModelDecorationOptions;
 
@@ -120,12 +120,22 @@ export abstract class AbstractCodeEditorService extends Disposable implements IC
 		return this._transientWatchers[uri].get(key);
 	}
 
+	public getTransientModelProperties(model: ITextModel): [string, any][] | undefined {
+		const uri = model.uri.toString();
+
+		if (!this._transientWatchers.hasOwnProperty(uri)) {
+			return undefined;
+		}
+
+		return this._transientWatchers[uri].keys().map(key => [key, this._transientWatchers[uri].get(key)]);
+	}
+
 	_removeWatcher(w: ModelTransientSettingWatcher): void {
 		delete this._transientWatchers[w.uri];
 	}
 
-	abstract getActiveCodeEditor(): ICodeEditor | undefined;
-	abstract openCodeEditor(input: IResourceInput, source: ICodeEditor | undefined, sideBySide?: boolean): Promise<ICodeEditor | undefined>;
+	abstract getActiveCodeEditor(): ICodeEditor | null;
+	abstract openCodeEditor(input: IResourceInput, source: ICodeEditor | null, sideBySide?: boolean): Promise<ICodeEditor | null>;
 }
 
 export class ModelTransientSettingWatcher {
@@ -144,5 +154,9 @@ export class ModelTransientSettingWatcher {
 
 	public get(key: string): any {
 		return this._values[key];
+	}
+
+	public keys(): string[] {
+		return Object.keys(this._values);
 	}
 }

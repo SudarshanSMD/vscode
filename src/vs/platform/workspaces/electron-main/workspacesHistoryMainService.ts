@@ -8,7 +8,7 @@ import * as arrays from 'vs/base/common/arrays';
 import { IStateService } from 'vs/platform/state/node/state';
 import { app, JumpListCategory } from 'electron';
 import { ILogService } from 'vs/platform/log/common/log';
-import { getBaseLabel, getPathLabel } from 'vs/base/common/labels';
+import { getBaseLabel, getPathLabel, splitName } from 'vs/base/common/labels';
 import { IPath } from 'vs/platform/windows/common/windows';
 import { Event as CommonEvent, Emitter } from 'vs/base/common/event';
 import { isWindows, isMacintosh } from 'vs/base/common/platform';
@@ -35,7 +35,7 @@ export interface IWorkspacesHistoryMainService {
 
 	addRecentlyOpened(recents: IRecent[]): void;
 	getRecentlyOpened(currentWorkspace?: IWorkspaceIdentifier, currentFolder?: ISingleFolderWorkspaceIdentifier, currentFiles?: IPath[]): IRecentlyOpened;
-	removeFromRecentlyOpened(paths: URI[]): void;
+	removeRecentlyOpened(paths: URI[]): void;
 	clearRecentlyOpened(): void;
 
 	updateWindowsJumpList(): void;
@@ -148,7 +148,7 @@ export class WorkspacesHistoryMainService extends Disposable implements IWorkspa
 		}
 	}
 
-	removeFromRecentlyOpened(toRemove: URI[]): void {
+	removeRecentlyOpened(toRemove: URI[]): void {
 		const keep = (recent: IRecent) => {
 			const uri = location(recent);
 			for (const r of toRemove) {
@@ -344,7 +344,7 @@ export class WorkspacesHistoryMainService extends Disposable implements IWorkspa
 					}
 				}
 			}
-			this.removeFromRecentlyOpened(toRemove);
+			this.removeRecentlyOpened(toRemove);
 
 			// Add entries
 			jumpList.push({
@@ -352,7 +352,7 @@ export class WorkspacesHistoryMainService extends Disposable implements IWorkspa
 				name: nls.localize('recentFolders', "Recent Workspaces"),
 				items: arrays.coalesce(this.getRecentlyOpened().workspaces.slice(0, 7 /* limit number of entries here */).map(recent => {
 					const workspace = isRecentWorkspace(recent) ? recent.workspace : recent.folderUri;
-					const title = recent.label || getSimpleWorkspaceLabel(workspace, this.environmentService.untitledWorkspacesHome);
+					const title = recent.label ? splitName(recent.label).name : getSimpleWorkspaceLabel(workspace, this.environmentService.untitledWorkspacesHome);
 
 					let description;
 					let args;

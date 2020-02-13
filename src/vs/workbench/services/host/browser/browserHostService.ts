@@ -17,6 +17,7 @@ import { trackFocus } from 'vs/base/browser/dom';
 import { Disposable } from 'vs/base/common/lifecycle';
 import { URI } from 'vs/base/common/uri';
 import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
+import { mapToSerializable } from 'vs/base/common/map';
 
 /**
  * A workspace to open in the workbench can either be:
@@ -34,12 +35,21 @@ export interface IWorkspaceProvider {
 	readonly workspace: IWorkspace;
 
 	/**
+	 * Arbitrary payload from the `IWorkspaceProvider.open` call.
+	 */
+	readonly payload?: object;
+
+	/**
 	 * Asks to open a workspace in the current or a new window.
 	 *
 	 * @param workspace the workspace to open.
-	 * @param options wether to open inside the current window or a new window.
+	 * @param options optional options for the workspace to open.
+	 * - `reuse`: whether to open inside the current window or a new window
+	 * - `payload`: arbitrary payload that should be made available
+	 * to the opening window via the `IWorkspaceProvider.payload` property.
+	 * @param payload optional payload to send to the workspace to open.
 	 */
-	open(workspace: IWorkspace, options?: { reuse?: boolean }): Promise<void>;
+	open(workspace: IWorkspace, options?: { reuse?: boolean, payload?: object }): Promise<void>;
 }
 
 export class BrowserHostService extends Disposable implements IHostService {
@@ -66,22 +76,20 @@ export class BrowserHostService extends Disposable implements IHostService {
 				async open() { }
 			};
 		}
-
-		this.registerListeners();
 	}
 
-	private registerListeners(): void {
+	private _onDidChangeFocus: Event<boolean> | undefined;
+	get onDidChangeFocus(): Event<boolean> {
+		if (!this._onDidChangeFocus) {
+			const focusTracker = this._register(trackFocus(window));
+			this._onDidChangeFocus = Event.any(
+				Event.map(focusTracker.onDidFocus, () => this.hasFocus),
+				Event.map(focusTracker.onDidBlur, () => this.hasFocus)
+			);
+		}
 
-		// Track Focus on Window
-		const focusTracker = this._register(trackFocus(window));
-		this._onDidChangeFocus = Event.any(
-			Event.map(focusTracker.onDidFocus, () => this.hasFocus),
-			Event.map(focusTracker.onDidBlur, () => this.hasFocus)
-		);
+		return this._onDidChangeFocus;
 	}
-
-	get onDidChangeFocus(): Event<boolean> { return this._onDidChangeFocus; }
-	private _onDidChangeFocus: Event<boolean>;
 
 	get hasFocus(): boolean {
 		return document.hasFocus();
@@ -108,18 +116,30 @@ export class BrowserHostService extends Disposable implements IHostService {
 
 			// Folder
 			if (isFolderToOpen(openable)) {
-				this.workspaceProvider.open({ folderUri: openable.folderUri }, { reuse: this.shouldReuse(options) });
+				this.workspaceProvider.open({ folderUri: openable.folderUri }, { reuse: this.shouldReuse(options, false /* no file */) });
 			}
 
 			// Workspace
 			else if (isWorkspaceToOpen(openable)) {
-				this.workspaceProvider.open({ workspaceUri: openable.workspaceUri }, { reuse: this.shouldReuse(options) });
+				this.workspaceProvider.open({ workspaceUri: openable.workspaceUri }, { reuse: this.shouldReuse(options, false /* no file */) });
 			}
 
-			// File: open via editor service in current window
+			// File
 			else if (isFileToOpen(openable)) {
-				const inputs: IResourceEditor[] = await pathsToEditors([openable], this.fileService);
-				this.editorService.openEditors(inputs);
+
+				// Same Window: open via editor service in current window
+				if (this.shouldReuse(options, true /* file */)) {
+					const inputs: IResourceEditor[] = await pathsToEditors([openable], this.fileService);
+					this.editorService.openEditors(inputs);
+				}
+
+				// New Window: open into empty window
+				else {
+					const environment = new Map<string, string>();
+					environment.set('openFile', openable.fileUri.toString());
+
+					this.workspaceProvider.open(undefined, { payload: mapToSerializable(environment) });
+				}
 			}
 		}
 	}
@@ -136,20 +156,20 @@ export class BrowserHostService extends Disposable implements IHostService {
 		return this.labelService.getUriLabel(openable.fileUri);
 	}
 
-	private shouldReuse(options: IOpenWindowOptions = {}): boolean {
+	private shouldReuse(options: IOpenWindowOptions = {}, isFile: boolean): boolean {
 		const windowConfig = this.configurationService.getValue<IWindowSettings>('window');
-		const openFolderInNewWindowConfig = (windowConfig && windowConfig.openFoldersInNewWindow) || 'default' /* default */;
+		const openInNewWindowConfig = isFile ? (windowConfig?.openFilesInNewWindow || 'off' /* default */) : (windowConfig?.openFoldersInNewWindow || 'default' /* default */);
 
-		let openFolderInNewWindow = !!options.forceNewWindow && !options.forceReuseWindow;
-		if (!options.forceNewWindow && !options.forceReuseWindow && (openFolderInNewWindowConfig === 'on' || openFolderInNewWindowConfig === 'off')) {
-			openFolderInNewWindow = (openFolderInNewWindowConfig === 'on');
+		let openInNewWindow = (options.preferNewWindow || !!options.forceNewWindow) && !options.forceReuseWindow;
+		if (!options.forceNewWindow && !options.forceReuseWindow && (openInNewWindowConfig === 'on' || openInNewWindowConfig === 'off')) {
+			openInNewWindow = (openInNewWindowConfig === 'on');
 		}
 
-		return !openFolderInNewWindow;
+		return !openInNewWindow;
 	}
 
 	private async doOpenEmptyWindow(options?: IOpenEmptyWindowOptions): Promise<void> {
-		this.workspaceProvider.open(undefined, { reuse: options && options.forceReuseWindow });
+		this.workspaceProvider.open(undefined, { reuse: options?.forceReuseWindow });
 	}
 
 	async toggleFullScreen(): Promise<void> {
@@ -192,10 +212,6 @@ export class BrowserHostService extends Disposable implements IHostService {
 
 	async reload(): Promise<void> {
 		window.location.reload();
-	}
-
-	async closeWorkspace(): Promise<void> {
-		return this.doOpenEmptyWindow({ forceReuseWindow: true });
 	}
 }
 

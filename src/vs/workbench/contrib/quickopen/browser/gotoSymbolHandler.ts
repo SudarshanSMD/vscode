@@ -16,7 +16,7 @@ import { IModelDecorationsChangeAccessor, OverviewRulerLane, IModelDeltaDecorati
 import { IQuickOpenService } from 'vs/platform/quickOpen/common/quickOpen';
 import { ITextEditorOptions } from 'vs/platform/editor/common/editor';
 import { getDocumentSymbols } from 'vs/editor/contrib/quickOpen/quickOpen';
-import { DocumentSymbolProviderRegistry, DocumentSymbol, symbolKindToCssClass, SymbolKind, SymbolTag } from 'vs/editor/common/modes';
+import { DocumentSymbolProviderRegistry, DocumentSymbol, SymbolKinds, SymbolKind, SymbolTag } from 'vs/editor/common/modes';
 import { IRange, Range } from 'vs/editor/common/core/range';
 import { themeColorFromId } from 'vs/platform/theme/common/themeService';
 import { overviewRulerRangeHighlight } from 'vs/editor/common/view/editorColorRegistry';
@@ -77,7 +77,7 @@ class OutlineModel extends QuickOpenModel {
 		const searchValuePos = searchValue.indexOf(SCOPE_PREFIX) === 0 ? 1 : 0;
 
 		// Check for match and update visibility and group label
-		this.entries.forEach((entry: SymbolEntry) => {
+		(<Array<SymbolEntry>>this.entries).forEach(entry => {
 
 			// Clear all state first
 			entry.setGroupLabel(undefined);
@@ -98,7 +98,7 @@ class OutlineModel extends QuickOpenModel {
 		});
 
 		// select comparator based on the presence of the colon-prefix
-		this.entries.sort(searchValuePos === 0
+		(<Array<SymbolEntry>>this.entries).sort(searchValuePos === 0
 			? SymbolEntry.compareByRank
 			: SymbolEntry.compareByKindAndRank
 		);
@@ -195,7 +195,7 @@ class SymbolEntry extends EditorQuickOpenEntryGroup {
 		return this.deprecated ? { extraClasses: ['deprecated'] } : undefined;
 	}
 
-	getHighlights(): [IHighlight[], IHighlight[] | undefined, IHighlight[] | undefined] {
+	getHighlights(): [IHighlight[] | undefined, IHighlight[] | undefined, IHighlight[] | undefined] {
 		return [
 			this.deprecated ? [] : filters.createMatches(this.score),
 			undefined,
@@ -425,7 +425,7 @@ export class GotoSymbolHandler extends QuickOpenHandler {
 
 			// Show parent scope as description
 			const description = element.containerName || '';
-			const icon = symbolKindToCssClass(element.kind);
+			const icon = SymbolKinds.toCssClassName(element.kind);
 
 			// Add
 			results.push(new SymbolEntry(i,
