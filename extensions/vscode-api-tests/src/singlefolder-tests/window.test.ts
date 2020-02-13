@@ -145,17 +145,27 @@ suite('window namespace tests', () => {
 		});
 	});
 
-	test('active editor not always correct... #49125', async function () {
+	// TODO this randomly fails when running against web and visually
+	// what seems to happen is that the second editor opens and both
+	// left and right editor show a blinking cursor. Since active editor
+	// tracking relies on editor focus to function properly, this
+	// seems to be the root cause of the failure.
+	// https://github.com/microsoft/vscode/issues/90470
+	test.skip('active editor not always correct... #49125', async function () {
+
+		const randomFile1 = await createRandomFile();
+		const randomFile2 = await createRandomFile();
+
 		const [docA, docB] = await Promise.all([
-			workspace.openTextDocument(await createRandomFile()),
-			workspace.openTextDocument(await createRandomFile()),
+			workspace.openTextDocument(randomFile1),
+			workspace.openTextDocument(randomFile2)
 		]);
 		for (let c = 0; c < 4; c++) {
 			let editorA = await window.showTextDocument(docA, ViewColumn.One);
-			assert(window.activeTextEditor === editorA);
+			assert.equal(window.activeTextEditor, editorA);
 
 			let editorB = await window.showTextDocument(docB, ViewColumn.Two);
-			assert(window.activeTextEditor === editorB);
+			assert.equal(window.activeTextEditor, editorB);
 		}
 	});
 

@@ -8,7 +8,7 @@ import * as Types from 'vs/base/common/types';
 import * as resources from 'vs/base/common/resources';
 import { IJSONSchemaMap } from 'vs/base/common/jsonSchema';
 import * as Objects from 'vs/base/common/objects';
-import { UriComponents } from 'vs/base/common/uri';
+import { UriComponents, URI } from 'vs/base/common/uri';
 
 import { ProblemMatcher } from 'vs/workbench/contrib/tasks/common/problemMatcher';
 import { IWorkspaceFolder, IWorkspace } from 'vs/platform/workspace/common/workspace';
@@ -274,7 +274,7 @@ export namespace PresentationOptions {
 export enum RuntimeType {
 	Shell = 1,
 	Process = 2,
-	CustomExecution2 = 3
+	CustomExecution = 3
 }
 
 export namespace RuntimeType {
@@ -284,8 +284,8 @@ export namespace RuntimeType {
 				return RuntimeType.Shell;
 			case 'process':
 				return RuntimeType.Process;
-			case 'customExecution2':
-				return RuntimeType.CustomExecution2;
+			case 'customExecution':
+				return RuntimeType.CustomExecution;
 			default:
 				return RuntimeType.Process;
 		}
@@ -380,7 +380,7 @@ export namespace TaskSourceKind {
 }
 
 export interface TaskSourceConfigElement {
-	workspaceFolder: IWorkspaceFolder;
+	workspaceFolder?: IWorkspaceFolder;
 	workspace?: IWorkspace;
 	file: string;
 	index: number;
@@ -438,7 +438,7 @@ export interface KeyedTaskIdentifier extends TaskIdentifier {
 }
 
 export interface TaskDependency {
-	workspaceFolder: IWorkspaceFolder;
+	uri: URI;
 	task: string | KeyedTaskIdentifier | undefined;
 }
 
@@ -505,6 +505,11 @@ export interface ConfigurationProperties {
 	dependsOrder?: DependsOrder;
 
 	/**
+	 * A description of the task.
+	 */
+	detail?: string;
+
+	/**
 	 * The problem watchers to use for this task
 	 */
 	problemMatchers?: Array<string | ProblemMatcher>;
@@ -518,10 +523,11 @@ export enum RunOnOptions {
 export interface RunOptions {
 	reevaluateOnRerun?: boolean;
 	runOn?: RunOnOptions;
+	instanceLimit?: number;
 }
 
 export namespace RunOptions {
-	export const defaults: RunOptions = { reevaluateOnRerun: true, runOn: RunOnOptions.default };
+	export const defaults: RunOptions = { reevaluateOnRerun: true, runOn: RunOnOptions.default, instanceLimit: 1 };
 }
 
 export abstract class CommonTask {
@@ -680,8 +686,8 @@ export class CustomTask extends CommonTask {
 					type = 'process';
 					break;
 
-				case RuntimeType.CustomExecution2:
-					type = 'customExecution2';
+				case RuntimeType.CustomExecution:
+					type = 'customExecution';
 					break;
 
 				case undefined:
@@ -728,7 +734,7 @@ export class CustomTask extends CommonTask {
 		return JSON.stringify(key);
 	}
 
-	public getWorkspaceFolder(): IWorkspaceFolder {
+	public getWorkspaceFolder(): IWorkspaceFolder | undefined {
 		return this._source.config.workspaceFolder;
 	}
 

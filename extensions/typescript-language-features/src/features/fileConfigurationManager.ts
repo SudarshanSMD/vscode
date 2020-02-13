@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import * as Proto from '../protocol';
+import type * as Proto from '../protocol';
 import { ITypeScriptServiceClient } from '../typescriptService';
 import API from '../utils/api';
 import { isTypeScriptDocument } from '../utils/languageModeIds';
@@ -167,7 +167,7 @@ export default class FileConfigurationManager extends Disposable {
 			insertSpaceAfterTypeAssertion: config.get<boolean>('insertSpaceAfterTypeAssertion'),
 			placeOpenBraceOnNewLineForFunctions: config.get<boolean>('placeOpenBraceOnNewLineForFunctions'),
 			placeOpenBraceOnNewLineForControlBlocks: config.get<boolean>('placeOpenBraceOnNewLineForControlBlocks'),
-			semicolons: config.get<string>('semicolons'),
+			semicolons: config.get<Proto.SemicolonPreference>('semicolons'),
 		};
 
 		return settings;

@@ -3,9 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { GroupIdentifier, IWorkbenchEditorConfiguration, EditorOptions, TextEditorOptions, IEditorInput, IEditorIdentifier, IEditorCloseEvent, IEditor, IEditorPartOptions } from 'vs/workbench/common/editor';
+import { GroupIdentifier, IWorkbenchEditorConfiguration, EditorOptions, TextEditorOptions, IEditorInput, IEditorIdentifier, IEditorCloseEvent, IEditor, IEditorPartOptions, IEditorPartOptionsChangeEvent, EditorInput } from 'vs/workbench/common/editor';
 import { EditorGroup } from 'vs/workbench/common/editor/editorGroup';
-import { IEditorGroup, GroupDirection, IAddGroupOptions, IMergeGroupOptions, GroupsOrder } from 'vs/workbench/services/editor/common/editorGroupsService';
+import { IEditorGroup, GroupDirection, IAddGroupOptions, IMergeGroupOptions, GroupsOrder, GroupsArrangement } from 'vs/workbench/services/editor/common/editorGroupsService';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { Dimension } from 'vs/base/browser/dom';
 import { Event } from 'vs/base/common/event';
@@ -14,7 +14,7 @@ import { IConfigurationChangeEvent } from 'vs/platform/configuration/common/conf
 import { ISerializableView } from 'vs/base/browser/ui/grid/grid';
 import { getCodeEditor } from 'vs/editor/browser/editorBrowser';
 import { IEditorOptions } from 'vs/platform/editor/common/editor';
-import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { IEditorService, IResourceEditor } from 'vs/workbench/services/editor/common/editorService';
 
 export const EDITOR_TITLE_HEIGHT = 35;
 
@@ -37,7 +37,8 @@ export const DEFAULT_EDITOR_PART_OPTIONS: IEditorPartOptions = {
 	openSideBySideDirection: 'right',
 	closeEmptyGroups: true,
 	labelFormat: 'default',
-	iconTheme: 'vs-seti'
+	iconTheme: 'vs-seti',
+	splitSizing: 'distribute'
 };
 
 export function impactsEditorPartOptions(event: IConfigurationChangeEvent): boolean {
@@ -60,11 +61,6 @@ export function getEditorPartOptions(config: IWorkbenchEditorConfiguration): IEd
 	}
 
 	return options;
-}
-
-export interface IEditorPartOptionsChangeEvent {
-	oldPartOptions: IEditorPartOptions;
-	newPartOptions: IEditorPartOptions;
 }
 
 export interface IEditorOpeningEvent extends IEditorIdentifier {
@@ -103,6 +99,8 @@ export interface IEditorGroupsAccessor {
 	copyGroup(group: IEditorGroupView | GroupIdentifier, location: IEditorGroupView | GroupIdentifier, direction: GroupDirection): IEditorGroupView;
 
 	removeGroup(group: IEditorGroupView | GroupIdentifier): void;
+
+	arrangeGroups(arrangement: GroupsArrangement, target?: IEditorGroupView | GroupIdentifier): void;
 }
 
 export interface IEditorGroupView extends IDisposable, ISerializableView, IEditorGroup {
@@ -153,4 +151,14 @@ export interface EditorServiceImpl extends IEditorService {
 	 * Emitted when an editor failed to open.
 	 */
 	readonly onDidOpenEditorFail: Event<IEditorIdentifier>;
+
+	/**
+	 * Emitted when the list of most recently active editors change.
+	 */
+	readonly onDidMostRecentlyActiveEditorsChange: Event<void>;
+
+	/**
+	 * Override to return a typed `EditorInput`.
+	 */
+	createInput(input: IResourceEditor): EditorInput;
 }

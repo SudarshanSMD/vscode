@@ -55,6 +55,8 @@ export class TypeScriptServiceConfiguration {
 	public readonly experimentalDecorators: boolean;
 	public readonly disableAutomaticTypeAcquisition: boolean;
 	public readonly useSeparateSyntaxServer: boolean;
+	public readonly enableProjectDiagnostics: boolean;
+	public readonly maxTsServerMemory: number;
 
 	public static loadFromWorkspace(): TypeScriptServiceConfiguration {
 		return new TypeScriptServiceConfiguration();
@@ -73,6 +75,8 @@ export class TypeScriptServiceConfiguration {
 		this.experimentalDecorators = TypeScriptServiceConfiguration.readExperimentalDecorators(configuration);
 		this.disableAutomaticTypeAcquisition = TypeScriptServiceConfiguration.readDisableAutomaticTypeAcquisition(configuration);
 		this.useSeparateSyntaxServer = TypeScriptServiceConfiguration.readUseSeparateSyntaxServer(configuration);
+		this.enableProjectDiagnostics = TypeScriptServiceConfiguration.readEnableProjectDiagnostics(configuration);
+		this.maxTsServerMemory = TypeScriptServiceConfiguration.readMaxTsServerMemory(configuration);
 	}
 
 	public isEqualTo(other: TypeScriptServiceConfiguration): boolean {
@@ -85,7 +89,9 @@ export class TypeScriptServiceConfiguration {
 			&& this.experimentalDecorators === other.experimentalDecorators
 			&& this.disableAutomaticTypeAcquisition === other.disableAutomaticTypeAcquisition
 			&& arrays.equals(this.tsServerPluginPaths, other.tsServerPluginPaths)
-			&& this.useSeparateSyntaxServer === other.useSeparateSyntaxServer;
+			&& this.useSeparateSyntaxServer === other.useSeparateSyntaxServer
+			&& this.enableProjectDiagnostics === other.enableProjectDiagnostics
+			&& this.maxTsServerMemory === other.maxTsServerMemory;
 	}
 
 	private static fixPathPrefixes(inspectValue: string): string {
@@ -145,5 +151,19 @@ export class TypeScriptServiceConfiguration {
 
 	private static readUseSeparateSyntaxServer(configuration: vscode.WorkspaceConfiguration): boolean {
 		return configuration.get<boolean>('typescript.tsserver.useSeparateSyntaxServer', true);
+	}
+
+	private static readEnableProjectDiagnostics(configuration: vscode.WorkspaceConfiguration): boolean {
+		return configuration.get<boolean>('typescript.tsserver.experimental.enableProjectDiagnostics', false);
+	}
+
+	private static readMaxTsServerMemory(configuration: vscode.WorkspaceConfiguration): number {
+		const defaultMaxMemory = 3072;
+		const minimumMaxMemory = 128;
+		const memoryInMB = configuration.get<number>('typescript.tsserver.maxTsServerMemory', defaultMaxMemory);
+		if (!Number.isSafeInteger(memoryInMB)) {
+			return defaultMaxMemory;
+		}
+		return Math.max(memoryInMB, minimumMaxMemory);
 	}
 }

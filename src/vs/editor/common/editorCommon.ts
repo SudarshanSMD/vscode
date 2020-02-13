@@ -22,7 +22,7 @@ export interface IEditOperationBuilder {
 	 * @param range The range to replace (delete). May be empty to represent a simple insert.
 	 * @param text The text to replace with. May be null to represent a simple delete.
 	 */
-	addEditOperation(range: Range, text: string | null): void;
+	addEditOperation(range: Range, text: string | null, forceMoveMarkers?: boolean): void;
 
 	/**
 	 * Add a new edit operation (a replace operation).
@@ -30,7 +30,7 @@ export interface IEditOperationBuilder {
 	 * @param range The range to replace (delete). May be empty to represent a simple insert.
 	 * @param text The text to replace with. May be null to represent a simple delete.
 	 */
-	addTrackedEditOperation(range: Range, text: string | null): void;
+	addTrackedEditOperation(range: Range, text: string | null, forceMoveMarkers?: boolean): void;
 
 	/**
 	 * Track `selection` when applying edit operations.
@@ -172,6 +172,14 @@ export interface IScrollEvent {
 	readonly scrollLeftChanged: boolean;
 	readonly scrollWidthChanged: boolean;
 	readonly scrollHeightChanged: boolean;
+}
+
+export interface IContentSizeChangedEvent {
+	readonly contentWidth: number;
+	readonly contentHeight: number;
+
+	readonly contentWidthChanged: boolean;
+	readonly contentHeightChanged: boolean;
 }
 
 export interface INewScrollPosition {
@@ -316,6 +324,12 @@ export interface IEditor {
 	getVisibleColumnFromPosition(position: IPosition): number;
 
 	/**
+	 * Given a position, returns a column number that takes tab-widths into account.
+	 * @internal
+	 */
+	getStatusbarColumn(position: IPosition): number;
+
+	/**
 	 * Returns the primary position of the cursor.
 	 */
 	getPosition(): Position | null;
@@ -342,6 +356,12 @@ export interface IEditor {
 	revealLineInCenterIfOutsideViewport(lineNumber: number, scrollType?: ScrollType): void;
 
 	/**
+	 * Scroll vertically as necessary and reveal a line close to the top of the viewport,
+	 * optimized for viewing a code definition.
+	 */
+	revealLineNearTop(lineNumber: number, scrollType?: ScrollType): void;
+
+	/**
 	 * Scroll vertically or horizontally as necessary and reveal a position.
 	 */
 	revealPosition(position: IPosition, scrollType?: ScrollType): void;
@@ -355,6 +375,12 @@ export interface IEditor {
 	 * Scroll vertically or horizontally as necessary and reveal a position centered vertically only if it lies outside the viewport.
 	 */
 	revealPositionInCenterIfOutsideViewport(position: IPosition, scrollType?: ScrollType): void;
+
+	/**
+	 * Scroll vertically or horizontally as necessary and reveal a position close to the top of the viewport,
+	 * optimized for viewing a code definition.
+	 */
+	revealPositionNearTop(position: IPosition, scrollType?: ScrollType): void;
 
 	/**
 	 * Returns the primary selection of the editor.
@@ -409,6 +435,12 @@ export interface IEditor {
 	revealLinesInCenterIfOutsideViewport(lineNumber: number, endLineNumber: number, scrollType?: ScrollType): void;
 
 	/**
+	 * Scroll vertically as necessary and reveal lines close to the top of the viewport,
+	 * optimized for viewing a code definition.
+	 */
+	revealLinesNearTop(lineNumber: number, endLineNumber: number, scrollType?: ScrollType): void;
+
+	/**
 	 * Scroll vertically or horizontally as necessary and reveal a range.
 	 */
 	revealRange(range: IRange, scrollType?: ScrollType): void;
@@ -427,6 +459,12 @@ export interface IEditor {
 	 * Scroll vertically or horizontally as necessary and reveal a range centered vertically only if it lies outside the viewport.
 	 */
 	revealRangeInCenterIfOutsideViewport(range: IRange, scrollType?: ScrollType): void;
+
+	/**
+	 * Scroll vertically or horizontally as necessary and reveal a range close to the top of the viewport,
+	 * optimized for viewing a code definition.
+	 */
+	revealRangeNearTop(range: IRange, scrollType?: ScrollType): void;
 
 	/**
 	 * Directly trigger a handler or an editor action.
@@ -489,10 +527,6 @@ export interface IDiffEditor extends IEditor {
  */
 export interface IEditorContribution {
 	/**
-	 * Get a unique identifier for this contribution.
-	 */
-	getId(): string;
-	/**
 	 * Dispose this contribution.
 	 */
 	dispose(): void;
@@ -504,6 +538,17 @@ export interface IEditorContribution {
 	 * Restore view state.
 	 */
 	restoreViewState?(state: any): void;
+}
+
+/**
+ * A diff editor contribution that gets created every time a new  diffeditor gets created and gets disposed when the diff editor gets disposed.
+ * @internal
+ */
+export interface IDiffEditorContribution {
+	/**
+	 * Dispose this contribution.
+	 */
+	dispose(): void;
 }
 
 /**
